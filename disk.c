@@ -40,6 +40,7 @@ extern struct bootfs ext2fs;
 extern struct bootfs iso;
 extern struct bootfs ufs;
 extern struct bootfs dummyfs;
+extern struct bootfs xfsfs;
 
 struct disklabel * label;
 int boot_part = -1;
@@ -47,7 +48,8 @@ int boot_part = -1;
 static const struct bootfs *bootfs[] = {
 	&ext2fs,
 	&iso,
-	&ufs
+	&ufs,
+	&xfsfs
 };
 
 /*
@@ -326,23 +328,18 @@ mount_fs (long dev, int partition)
 			return 0;
 		}
 		part = &label->d_partitions[partition - 1];
-		for (i = 0; bootfs[i]->fs_type != part->p_fstype; ++i) {
-			if (i + 1
-			    >= (int) (sizeof(bootfs)/sizeof(bootfs[0])))
-			{
-				printf("aboot: don't know how to mount "
-				       "partition %d (filesystem type %d)\n",
-				       partition, part->p_fstype);
-				return 0;
+		for (i = 0; i < (int)(sizeof(bootfs)/sizeof(bootfs[0])); i++) {
+			if (bootfs[i]->fs_type == part->p_fstype) {
+			        fs = bootfs[i];
+				if (!((*fs->mount)(dev, (long)(part->p_offset) * (long)(label->d_secsize), 1)
+				< 0))
+				return fs;
 			}
 		}
-		fs = bootfs[i];
-		if ((*fs->mount)(dev, (long)(part->p_offset) * (long)(label->d_secsize), 0)
-		    < 0) {
-			printf("aboot: mount of partition %d failed\n",
-			       partition);
-			return 0;
-		}
+		printf("aboot: don't know how to mount "
+		       "partition %d (filesystem type %d)\n",
+	  	        partition, part->p_fstype);
+		return 0;
 	}
 	return fs;
 }

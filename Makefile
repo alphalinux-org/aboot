@@ -17,7 +17,7 @@ VMLINUXGZ	= $(KSRC)/arch/alpha/boot/vmlinux.gz
 #TESTING	= yes
 
 # for boot testing
-#CFGDEFS       	= -DDEBUG_ISO -DDEBUG_ROCK -DDEBUG_EXT2 -DDEBUG
+#CFGDEFS       	= -DDEBUG_ISO -DDEBUG_ROCK -DDEBUG_EXT2 -DDEBUG_XFS -DDEBUG
 
 # root, aka prefix
 root		=
@@ -57,7 +57,7 @@ override ASFLAGS	+= $(CPPFLAGS)
 	$(CC) $(ASFLAGS) -D__ASSEMBLY__ -c -o $*.o $<
 
 NET_OBJS = net.o
-DISK_OBJS = disk.o fs/ext2.o fs/ufs.o fs/dummy.o fs/iso.o
+DISK_OBJS = disk.o fs/ext2.o fs/ufs.o fs/dummy.o fs/iso.o fs/xfs.o
 ifeq ($(TESTING),)
 ABOOT_OBJS = \
 	head.o aboot.o cons.o utils.o \
