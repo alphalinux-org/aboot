@@ -15,9 +15,37 @@
 #include "ext4.h"
 #include "utils.h"
 #include <string.h>
-
+#include <stdint.h>
 #define MAX_OPEN_FILES		5
 
+/*
+ * What this build of aboot can safely cope with.
+ *
+ * Keep these masks conservative; you can relax them as you implement
+ * more features.
+ */
+
+#ifndef EXT4_FEATURE_INCOMPAT_SUPP
+#define EXT4_FEATURE_INCOMPAT_SUPP \
+    (EXT4_FEATURE_INCOMPAT_FILETYPE    | \
+     EXT4_FEATURE_INCOMPAT_RECOVER     | \
+     EXT4_FEATURE_INCOMPAT_EXTENTS     | \
+     EXT4_FEATURE_INCOMPAT_64BIT       | \
+     EXT4_FEATURE_INCOMPAT_FLEX_BG     | \
+     EXT4_FEATURE_INCOMPAT_MMP         | \
+     EXT4_FEATURE_INCOMPAT_CSUM_SEED)
+#endif
+
+#ifndef EXT4_FEATURE_RO_COMPAT_SUPP
+#define EXT4_FEATURE_RO_COMPAT_SUPP \
+    (EXT4_FEATURE_RO_COMPAT_SPARSE_SUPER  | \
+     EXT4_FEATURE_RO_COMPAT_LARGE_FILE    | \
+     EXT4_FEATURE_RO_COMPAT_BTREE_DIR     | \
+     EXT4_FEATURE_RO_COMPAT_HUGE_FILE     | \
+     EXT4_FEATURE_RO_COMPAT_DIR_NLINK     | \
+     EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE   | \
+     EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)
+#endif
 extern struct bootfs ext2fs;
 
 static struct ext2_super_block sb;
@@ -38,6 +66,7 @@ static int cached_tiblkno = -1;
 static char *tiblkbuf;
 static long dev = -1;
 static long partition_offset;
+static unsigned int group_desc_size = 0;
 
 static struct inode_table_entry {
 	struct	ext2_inode	inode;
@@ -46,6 +75,77 @@ static struct inode_table_entry {
 	unsigned short		old_mode;
 } inode_table[MAX_OPEN_FILES];
 
+static int ext4_check_features(int quiet)
+{
+    /* sb is the global ext2_super_block already filled in by ext2_mount() */
+#ifdef DEBUG_EXT2
+    uint32_t compat = sb.s_feature_compat;
+    printf("ext2/4: FS compat features: 0x%08x\n", compat);
+#endif
+    uint32_t ro_compat = sb.s_feature_ro_compat;
+    uint32_t incompat  = sb.s_feature_incompat;
+    uint32_t missing;
+
+    /* First check incompatible features – these must all be understood */
+    missing = incompat & ~EXT4_FEATURE_INCOMPAT_SUPP;
+    if (missing) {
+        if (!quiet) {
+            printf("ext2/4: unsupported INCOMPAT features: 0x%08x", missing);
+
+            if (missing & EXT4_FEATURE_INCOMPAT_64BIT)
+                printf(" (64bit)");
+            if (missing & EXT4_FEATURE_INCOMPAT_META_BG)
+                printf(" (meta_bg)");
+            if (missing & EXT4_FEATURE_INCOMPAT_FLEX_BG)
+                printf(" (flex_bg)");
+            if (missing & EXT4_FEATURE_INCOMPAT_MMP)
+                printf(" (mmp)");
+	    if (missing & EXT4_FEATURE_INCOMPAT_CSUM_SEED)
+		printf(" (csum_seed)");
+            /* add more decodes here as you implement them */
+
+            printf("\n");
+            printf("        Use an ext2/3/4 filesystem without these features\n");
+            printf("        (for example: tune2fs -O ^64bit,^metadata_csum /dev/XXX\n");
+            printf("         or create a small ext2/ext3 /boot partition).\n");
+        }
+        return -1;
+    }
+
+    /*
+     * Now check RO-compat features.
+     * In a read-only loader, unknown RO-compat features are theoretically
+     * safe, but some (e.g. metadata_csum) *do* affect on-disk layout, so
+     * we still reject unknown ones for now.
+     */
+    missing = ro_compat & ~EXT4_FEATURE_RO_COMPAT_SUPP;
+    if (missing) {
+        if (!quiet) {
+            printf("ext2/4: unsupported RO_COMPAT features: 0x%08x", missing);
+
+            if (missing & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)
+                printf(" (metadata_csum)");
+            if (missing & EXT4_FEATURE_RO_COMPAT_BIGALLOC)
+                printf(" (bigalloc)");
+            if (missing & EXT4_FEATURE_RO_COMPAT_QUOTA)
+                printf(" (quota)");
+            /* add more decodes here as needed */
+
+            printf("\n");
+            printf("        This aboot build cannot read this ext4 layout safely.\n");
+        }
+        return -1;
+    }
+
+#ifdef DEBUG_EXT2
+    if (!quiet) {
+        printf("ext2/4: features OK: compat=0x%08x ro_compat=0x%08x "
+               "incompat=0x%08x\n",
+               compat, ro_compat, incompat);
+    }
+#endif
+    return 0;
+}
 
 /*
  * Initialize an ext2 partition starting at offset P_OFFSET; this is
@@ -57,6 +157,7 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 {
 	long sb_block = 1;
 	long sb_offset;
+	long gdt_start;
 	int i;
 
 	dev = cons_dev;
@@ -85,24 +186,67 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 		}
 		return -1;
 	}
+    /*
+     * ext4: group descriptor size.  For classic ext2 this is either
+     * zero or 32.  For ext4 with 64bit it is typically 64.
+     *
+     * We only care about the first sizeof(struct ext2_group_desc)
+     * bytes, which are laid out compatibly with ext2.
+     */
+    group_desc_size = sb.s_desc_size;
+    if (group_desc_size == 0)
+        group_desc_size = sizeof(struct ext2_group_desc);
+
+    if (group_desc_size < sizeof(struct ext2_group_desc)) {
+        printf("ext2/4: group descriptor size %u too small\n",
+               group_desc_size);
+        return -1;
+    }
+	if (ext4_check_features(quiet) < 0)
+		return -1;
 
 	ngroups = (sb.s_blocks_count -
 		   sb.s_first_data_block +
 		   EXT2_BLOCKS_PER_GROUP(&sb) - 1)
 		/ EXT2_BLOCKS_PER_GROUP(&sb);
 
-	gds = malloc((size_t)(ngroups * sizeof(struct ext2_group_desc)));
-
 	ext2fs.blocksize = EXT2_BLOCK_SIZE(&sb);
+	if (group_desc_size > ext2fs.blocksize) {
+		printf("ext2/4: group descriptor size %u > blocksize %u\n",
+		group_desc_size, ext2fs.blocksize);
+		return -1;
+	}
+
+	gds = malloc((size_t)(ngroups * sizeof(struct ext2_group_desc)));
+	if (!gds) {
+		printf("ext2: no memory for group descriptors\n");
+		return -1;
+	}
+
 	blkbuf = malloc(ext2fs.blocksize);
 	iblkbuf = malloc(ext2fs.blocksize);
 	diblkbuf = malloc(ext2fs.blocksize);
 	tiblkbuf = malloc(ext2fs.blocksize);
 
 	/* read in the group descriptors (immediately follows superblock) */
-	cons_read(dev, gds, ngroups * sizeof(struct ext2_group_desc),
-		  partition_offset +
-                  ext2fs.blocksize * (EXT2_MIN_BLOCK_SIZE/ext2fs.blocksize + 1));
+
+        gdt_start = partition_offset +
+            ext2fs.blocksize *
+            (EXT2_MIN_BLOCK_SIZE / ext2fs.blocksize + 1);
+
+        for (i = 0; i < ngroups; i++) {
+            long off = gdt_start + (long)i * group_desc_size;
+            size_t toread = sizeof(struct ext2_group_desc);
+
+            if (toread > group_desc_size)
+                toread = group_desc_size;
+
+            if (cons_read(dev, &gds[i], toread, off) != (long)toread) {
+                printf("ext2/4: group descriptor %d read failed\n", i);
+                return -1;
+            }
+        }
+
 	/*
 	 * Calculate direct/indirect block limits for this file system
 	 * (blocksize dependent):
@@ -347,50 +491,108 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 
 static int ext4_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buffer)
 {
-	long tot_bytes = 0;
+    struct ext4_extent_header *hdr;
+    struct ext4_extent *ext_base;
+    int entries;
+    long cur_blk = blkno;     /* logical block we are at */
+    long blocks_left = nblks; /* blocks still to read */
+    char *bufp = buffer;
+    long tot_bytes = 0;
 
-	struct ext4_extent_header *hdr;
-	hdr = (struct ext4_extent_header *)&ip->i_block[0];
+    hdr = (struct ext4_extent_header *)&ip->i_block[0];
 
-	if (hdr->eh_magic != EXT4_EXT_MAGIC) {
-		printf("ext4_breadi: Extent header magic wrong.\n");
-		return -1;
-	}
+    if (hdr->eh_magic != EXT4_EXT_MAGIC) {
+        printf("ext4_breadi: Extent header magic wrong.\n");
+        return -1;
+    }
 
-	if (hdr->eh_entries != 1) {
-		printf("ext4_breadi: Extent entries must be 1.\n");
-		return -1;
-	}
+    /* For now we only handle leaf extents stored inline in the inode. */
+    if (hdr->eh_depth != 0) {
+        printf("ext4_breadi: Extent tree depth %d not supported.\n",
+               hdr->eh_depth);
+        return -1;
+    }
 
-	struct ext4_extent *ext;
-	ext = (struct ext4_extent *)&ip->i_block[3];
+    entries  = hdr->eh_entries;
+    if (entries <= 0) {
+        printf("ext4_breadi: No extents.\n");
+        return -1;
+    }
 
-	if (ext->ee_block != 0) {
-		printf("ext4_breadi: First logical block must be 0.\n");
-		return -1;
-	}
+    /* --- honour file size like ext2_breadi() does --- */
+    if ((blkno + nblks) * ext2fs.blocksize > ip->i_size) {
+        long maxblk = (ip->i_size + ext2fs.blocksize) / ext2fs.blocksize;
+        nblks = maxblk - blkno;
+        if (nblks <= 0)
+            return 0;  /* nothing to read */
+    }
+    cur_blk     = blkno;
+    blocks_left = nblks;
 
-	if (nblks > ext->ee_len) {
-		printf("ext4_breadi: Request nblks greater than extent len.\n");
-		return -1;
-	}
 
-	long ee_start = ((long)ext->ee_start_hi << 32) + ext->ee_start_lo;
+    /* Extents start right after the header in i_block[] */
+    ext_base = (struct ext4_extent *)((char *)hdr + sizeof(*hdr));
 
-	if (blkno + nblks > ext->ee_len) {
-		nblks = ext->ee_len - blkno;
-	}
+    while (blocks_left > 0) {
+        struct ext4_extent *ext = NULL;
+        int i;
 
-	long offset = partition_offset + (ee_start + blkno) * ext2fs.blocksize;
-	long nbytes = nblks * ext2fs.blocksize;
+        /* Find the extent that covers cur_blk */
+        for (i = 0; i < entries; i++) {
+            struct ext4_extent *e = &ext_base[i];
+            uint32_t first = e->ee_block;
+            uint32_t len   = e->ee_len;
 
-	tot_bytes = cons_read(dev, buffer, nbytes, offset);
-	if (tot_bytes != nbytes) {
-		printf("ext4_breadi: cons_read failed.\n");
-		return -1;
-	}
+            if (len == 0)
+                continue;
 
-	return tot_bytes;
+            if ((uint32_t)cur_blk >= first &&
+                (uint32_t)cur_blk < first + len) {
+                ext = e;
+                break;
+            }
+        }
+
+        if (!ext) {
+            printf("ext4_breadi: logical block %ld not in any extent.\n",
+                   cur_blk);
+            return -1;
+        }
+
+        {
+            uint32_t first = ext->ee_block;
+            uint32_t len   = ext->ee_len;
+            long within    = cur_blk - first;   /* offset inside this extent */
+            long can_read  = len - within;      /* blocks available here */
+
+            if (can_read > blocks_left)
+                can_read = blocks_left;
+
+            /* Calculate physical start block of this chunk */
+            long ee_start =
+                ((long)ext->ee_start_hi << 32) + ext->ee_start_lo;
+            long phys_blk = ee_start + within;
+
+            long offset = partition_offset +
+                phys_blk * ext2fs.blocksize;
+            long nbytes = can_read * ext2fs.blocksize;
+            long got;
+
+            got = cons_read(dev, bufp, nbytes, offset);
+            if (got != nbytes) {
+                printf("ext4_breadi: cons_read failed (wanted %ld, got %ld).\n",
+                       nbytes, got);
+                return -1;
+            }
+
+            bufp       += nbytes;
+            tot_bytes  += nbytes;
+            cur_blk    += can_read;
+            blocks_left -= can_read;
+        }
+    }
+
+    return tot_bytes;
 }
 
 static int ext2_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buffer)
