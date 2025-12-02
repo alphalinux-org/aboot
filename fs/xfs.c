@@ -21,7 +21,10 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#include <asm/system.h>
+//#include <asm/system.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
 #include "config.h"
 #include "aboot.h"
 #include "bootfs.h"
@@ -57,12 +60,36 @@ static long xfs_read (void *buf, long len);
 
 #define isspace(c) ((c) == 0x10)
 
+/*
+ * Replacement for old Linux __swabXX() helpers.
+ * XFS metadata is big-endian on disk, Alpha CPU is little-endian.
+ */
+static inline uint16_t __swab16(uint16_t x)
+{
+    return (uint16_t)((x << 8) | (x >> 8));
+}
+
+static inline uint32_t __swab32(uint32_t x)
+{
+    return ((x & 0x000000FFU) << 24) |
+           ((x & 0x0000FF00U) <<  8) |
+           ((x & 0x00FF0000U) >>  8) |
+           ((x & 0xFF000000U) >> 24);
+}
+
+static inline uint64_t __swab64(uint64_t x)
+{
+    return ((uint64_t)__swab32((uint32_t)x) << 32) |
+            __swab32((uint32_t)(x >> 32));
+}
+
+
 static int
 devread(long sector, long start, long length, void *buf)
 {
        long pos = sector * SECT_SIZE;
        pos += partition_offset + start;
-#ifdef DEBUG_XFS
+#ifdef DEBUG_XFS2
        printf("Reading %ld bytes, starting at sector %ld, disk offset %ld\n",
                length, sector, pos);
 #endif
@@ -428,9 +455,18 @@ next_dentry (xfs_ino_t *ino)
        int toread;
        static xfs_dir2_sf_entry_t *sfe;
        char *name = NULL;
+#ifdef DEBUG_XFS_2
+       printf("next_dentry(): dirpos=%d dirmax=%d di_format=%d\n",
+              xfs.dirpos, xfs.dirmax, icore.di_format);
+#endif
 
        if (xfs.dirpos >= xfs.dirmax) {
-               if (xfs.forw == 0)
+#ifdef DEBUG_XFS
+               printf("next_dentry(): at end of directory (dirpos >= dirmax)\n");
+#endif
+
+
+		 if (xfs.forw == 0)
                        return NULL;
                xfs.dablk = xfs.forw;
                xfs_dabread ();
@@ -488,6 +524,19 @@ next_dentry (xfs_ino_t *ino)
                xfs_read ((char *)dirbuf + 4, 5);
                *ino = le64 (dau->entry.inumber);
                namelen = dau->entry.namelen;
+
+               /* Some entries are free/invalid: namelen==0 or ino==0.
+                 * Skip them and move to the next directory position.
+                 */
+                if (namelen == 0 || *ino == 0) {
+#ifdef DEBUG_XFS_2
+                        printf("next_dentry(): skipping nameless/invalid entry (ino=%llu namelen=%d)\n",
+                               (unsigned long long)*ino, namelen);
+#endif
+                        ++xfs.dirpos;
+                        return next_dentry(ino);
+                }
+
 #undef dau
                toread = roundup8 (namelen + 11) - 9;
                xfs_read (dirbuf, toread);
@@ -496,6 +545,16 @@ next_dentry (xfs_ino_t *ino)
                xfs.blkoff += toread + 5;
        }
        ++xfs.dirpos;
+#ifdef DEBUG_XFS
+
+       if (name)
+               printf("next_dentry(): returning name='%s' ino=%llu (dirpos now %d)\n",
+                      name, (unsigned long long)*ino, xfs.dirpos);
+       else
+               printf("next_dentry(): returning NULL name (dirpos now %d)\n",
+                      xfs.dirpos);
+
+#endif
 
        return name;
 }
@@ -504,11 +563,18 @@ static char *
 first_dentry (xfs_ino_t *ino)
 {
        xfs.forw = 0;
+#ifdef DEBUG_XFS_2
+       printf("first_dentry(): di_format=%d\n", icore.di_format);
+#endif
        switch (icore.di_format) {
        case XFS_DINODE_FMT_LOCAL:
                xfs.dirmax = inode->di_u.di_dir2sf.hdr.count;
                xfs.i8param = inode->di_u.di_dir2sf.hdr.i8count ? 0 : 4;
                xfs.dirpos = -2;
+#ifdef DEBUG_XFS_2
+               printf("first_dentry(): LOCAL dir, dirmax=%d i8param=%d\n",
+                      xfs.dirmax, xfs.i8param);
+#endif
                break;
        case XFS_DINODE_FMT_EXTENTS:
        case XFS_DINODE_FMT_BTREE:
@@ -540,6 +606,11 @@ first_dentry (xfs_ino_t *ino)
                xfs.blkoff = sizeof(xfs_dir2_data_hdr_t);
                filepos = xfs.blkoff;
                xfs.dirpos = 0;
+#ifdef DEBUG_XFS_2
+               printf("first_dentry(): DIR2 dir, dirmax=%d dirbsize=%d blkoff=%d\n",
+                      xfs.dirmax, xfs.dirbsize, xfs.blkoff);
+#endif
+
        }
        return next_dentry (ino);
 }
@@ -565,9 +636,21 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
        } else if (le32(super.sb_magicnum) != XFS_SB_MAGIC) {
                printf("xfs_mount: Bad magic: %x\n", super.sb_magicnum);
                return -1;
-       } else if ((le16(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS) != XFS_SB_VERSION_4) {
-               printf("xfs_mount: Bad version: %x\n", super.sb_versionnum);
-               return -1;
+       } else {
+        unsigned int ver = le16(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS;
+
+        /* Explicitly refuse XFS v5 (CRC-enabled) filesystems */
+        if (ver == XFS_SB_VERSION_5) {
+            printf("xfs_mount: XFS v5 (CRC-enabled) filesystem is not supported by aboot\n");
+            return -1;
+        }
+
+        /* Only XFS v4 is supported */
+        if (ver != XFS_SB_VERSION_4) {
+            printf("xfs_mount: unsupported XFS version %u\n", ver);
+            return -1;
+        }
+ 
        }
 
        xfs.bsize = le32 (super.sb_blocksize);
@@ -681,9 +764,11 @@ static int xfs_open(const char *dirname)
        strncpy(namebuf,dirname,MAXNAMELEN);
        char *filename = namebuf;
 
+
 #ifdef DEBUG_XFS
        printf("xfs_open(): filename = %s\n", filename);
 #endif
+
 
        parent_ino = ino = xfs.rootino;
        link_count = 0;
@@ -742,11 +827,21 @@ static int xfs_open(const char *dirname)
 
                for (rest = filename; (ch = *rest) && !isspace (ch) && ch != '/'; rest++);
                *rest = 0;
+#ifdef DEBUG_XFS
+               printf("xfs_open(): looking for '%s' in current directory\n", filename);
+#endif
 
                name = first_dentry (&xfs.new_ino);
                for (;;) {
-#ifdef DEBUG
-                       printf("xfs_open(): found %s\n", name);
+#ifdef DEBUG_XFS
+                       if (name)
+                               printf("xfs_open(): candidate='%s' looking_for='%s'\n",
+                                      name, filename);
+                       else
+                               printf("xfs_open(): candidate is NULL while looking_for='%s'\n",
+                                      filename);
+
+
 #endif
                        cmp = (!*filename) ? -1 : strcmp (filename, name);
                        if (cmp == 0) {
@@ -779,14 +874,25 @@ static void xfs_close(int fd)
 static const char *
 xfs_readdir(int fd, int rewind)
 {
+#ifdef DEBUG_XFS
+       printf("xfs_readdir(): fd=%d rewind=%d\n", fd, rewind);
+#endif
+
        if (fd != 1)
                return NULL;
        if ((le16 (icore.di_mode) & IFMT) != IFDIR) {
                printf("Not a directory!\n");
                return NULL;
        }
-       if (rewind)
-               return first_dentry (&xfs.new_ino);
+       if (rewind) {
+#ifdef DEBUG_XFS_2
+               printf("xfs_readdir(): calling first_dentry()\n");
+#endif
+       		return first_dentry (&xfs.new_ino);
+       }
+#ifdef DEBUG_XFS_2
+       printf("xfs_readdir(): calling next_dentry()\n");
+#endif
        return next_dentry (&xfs.new_ino);
 }
 
@@ -801,7 +907,7 @@ xfs_fstat(int fd, struct stat* buf)
 
        memset(buf, 0, sizeof(struct stat));
        buf->st_mode   = le16(icore.di_mode);
-       buf->st_flags  = le16(icore.di_flags);
+       //buf->st_flags  = le16(icore.di_flags);
        buf->st_nlink  = le16(icore.di_onlink);
        buf->st_uid    = le32(icore.di_uid);
        buf->st_gid    = le32(icore.di_gid);
