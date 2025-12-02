@@ -505,26 +505,29 @@ next_dentry (xfs_ino_t *ino)
                break;
        case XFS_DINODE_FMT_BTREE:
        case XFS_DINODE_FMT_EXTENTS:
-#define dau    ((xfs_dir2_data_union_t *)dirbuf)
-               for (;;) {
-                       if (xfs.blkoff >= xfs.dirbsize) {
-                               xfs.blkoff = sizeof(xfs_dir2_data_hdr_t);
-                               filepos &= ~(xfs.dirbsize - 1);
-                               filepos |= xfs.blkoff;
-                       }
-                       xfs.blkoff += 4;
-                       if (dau->unused.freetag == XFS_DIR2_DATA_FREE_TAG) {
-                               toread = roundup8 (le16(dau->unused.length)) - 4;
-                               xfs.blkoff += toread;
-                               filepos += toread;
-                               continue;
-                       }
-                       break;
-               }
-               xfs_read ((char *)dirbuf + 4, 5);
-               *ino = le64 (dau->entry.inumber);
-               namelen = dau->entry.namelen;
+#define dau ((xfs_dir2_data_union_t *)dirbuf)
+	for (;;) {
+		if (xfs.blkoff >= xfs.dirbsize) {
+			xfs.blkoff = sizeof(xfs_dir2_data_hdr_t);
+			filepos &= ~(xfs.dirbsize - 1);
+			filepos |= xfs.blkoff;
+		}
 
+		xfs_read(dirbuf, 4);          /* read freetag/length/tag */
+		xfs.blkoff += 4;
+
+		if (dau->unused.freetag == XFS_DIR2_DATA_FREE_TAG) {
+			toread = roundup8(le16(dau->unused.length)) - 4;
+			xfs.blkoff += toread;
+			filepos += toread;
+			continue;
+		}
+		break;
+		}
+
+		xfs_read((char *)dirbuf + 4, 5);
+		*ino = le64(dau->entry.inumber);
+		namelen = dau->entry.namelen;
                /* Some entries are free/invalid: namelen==0 or ino==0.
                  * Skip them and move to the next directory position.
                  */
