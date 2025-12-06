@@ -110,6 +110,18 @@ static inline uint64_t __swab64(uint64_t x)
 }
 
 
+typedef struct xfs_dir2_leaf_entry {
+    uint32_t hashval;   /* hash of name */
+    uint32_t address;   /* block/offset of data entry */
+} xfs_dir2_leaf_entry_t;
+
+typedef struct xfs_dir3_block_tail {
+    uint32_t bestcount; /* number of bestfree slots */
+    uint32_t count;     /* number of leaf entries */
+    uint32_t stale;     /* number of stale leaf entries */
+} xfs_dir3_block_tail_t;
+
+
 static int
 devread(long sector, long start, long length, void *buf)
 {
@@ -758,19 +770,20 @@ roundup8 (int n)
 }
 
 
-
 static int
 xfs_count_dir3_entries(void)
 {
     uint32_t magic;
     int count = 0;
-    int has_ftype = xfs.is_v5;   /* v5 + ftype=1 on your fs */
+    int has_ftype = xfs.is_v5;
+    xfs_dir3_block_tail_t tail;
+    int data_end;
 
-    /* Start at the beginning of the block. */
-    filepos = 0;
+    /* Start at beginning of block */
+    filepos   = 0;
     xfs.blkoff = 0;
 
-    /* Read block magic. */
+    /* Read block magic */
     if (xfs_read(&magic, sizeof(magic)) != sizeof(magic)) {
         printf("xfs: failed to read dir3 block magic\n");
         return 0;
@@ -782,61 +795,73 @@ xfs_count_dir3_entries(void)
         return 0;
     }
 
-    /* Skip full v5 data header. */
+    /* Skip v5 data header */
     filepos    = sizeof(xfs_dir3_data_hdr_t);
     xfs.blkoff = filepos;
 
-    while (xfs.blkoff < xfs.dirbsize) {
+    /* --- Find block tail to know where the leaf area starts --- */
+    {
+        long saved_pos  = filepos;
+        long saved_off  = xfs.blkoff;
+
+        /* Tail is at end of block */
+        filepos = xfs.dirbsize - sizeof(xfs_dir3_block_tail_t);
+        if (xfs_read(&tail, sizeof(tail)) != sizeof(tail)) {
+            printf("xfs: failed to read dir3 block tail\n");
+            return 0;
+        }
+
+        /* Convert endianness */
+        uint32_t leaf_count = le32(tail.count);
+        uint32_t leaf_bytes = leaf_count * sizeof(xfs_dir2_leaf_entry_t);
+
+        /* Leaf array starts just before the tail */
+        data_end = xfs.dirbsize - sizeof(xfs_dir3_block_tail_t) - leaf_bytes;
+
+        /* Restore position to start scanning data entries */
+        filepos    = saved_pos;
+        xfs.blkoff = saved_off;
+    }
+
+    /* Walk entries only within [header .. data_end) */
+    while (xfs.blkoff < data_end) {
         xfs_dir2_data_union_t u;
 
-        /* Read first 4 bytes of the next slot. */
+        /* Read first 4 bytes of slot */
         if (xfs_read(&u, 4) != 4)
             break;
 
         xfs.blkoff += 4;
 
-        /* Free slot?  (first 16 bits are freetag) */
+        /* Free entry? */
         if (le16(u.unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
             uint16_t len = le16(u.unused.length);
-            int skip = roundup8(len) - 4;   /* 4 bytes already consumed */
-
-            if (skip < 0)
-                skip = 0;
+            int skip = roundup8(len) - 4;  /* 4 already read */
+            if (skip < 0) skip = 0;
 
             filepos    += skip;
             xfs.blkoff += skip;
             continue;
         }
 
-        /* Used entry: read the rest of the fixed header:
-         * remaining 4 bytes of inumber + namelen (5 bytes total).
-         */
+        /* Used entry: read remaining 4 bytes of inumber + namelen (5 bytes total) */
         if (xfs_read(((char *)&u) + 4, 5) != 5)
             break;
 
         xfs.blkoff += 5;
 
-        /* Now inumber + namelen are valid. */
         if (u.entry.namelen != 0)
             count++;
 
-        /*
-         * Full on-disk entry size:
-         *   8 bytes inumber
-         *   1 byte namelen
-         *   namelen bytes name
-         *   optional 1 byte ftype
-         *   2 bytes tag
-         *   padded to 8 bytes
-         */
+        /* Compute full entry size */
         {
             int base = 8 + 1 + u.entry.namelen + 2;
             if (has_ftype)
-                base += 1;
+                base += 1;        /* ftype byte */
 
             int entsize = roundup8(base);
 
-            /* We already consumed 9 bytes (8 + 1) via xfs_read() calls. */
+            /* We already consumed 9 bytes: 8 (ino) + 1 (namelen) */
             int skip = entsize - 9;
             if (skip < 0)
                 skip = 0;
@@ -846,7 +871,7 @@ xfs_count_dir3_entries(void)
         }
     }
 
-    /* Leave caller positioned at the first real data entry. */
+    /* Leave caller positioned at start of data region */
     filepos    = sizeof(xfs_dir3_data_hdr_t);
     xfs.blkoff = filepos;
 
@@ -918,7 +943,6 @@ first_dentry_local(xfs_ino_t *ino)
     xfs.forw   = 0;
     xfs.dirmax = hdr->count;          /* number of real entries (no . / ..) */
     printf("sf->hdr.count=%d\n",xfs.dirmax);
-    //debug_dump_sf_bytes();
     /* Keep i8param for old helpers, though we no longer rely on it here. */
     xfs.i8param = hdr->i8count ? 0 : 4;
 
@@ -930,8 +954,8 @@ first_dentry_local(xfs_ino_t *ino)
      */
     xfs.dirpos = -2;
 
-#ifdef DEBUG_XFS_2
-    printf("first_dentry(): ino=%llu version=%d format=%d size=%lld is_v5=%d\n",
+#ifdef DEBUG_XFS
+    printf("first_dentry(): ino=%lu version=%d format=%d size=%ld is_v5=%d\n",
            (unsigned long long)*ino,
            icore.di_version,
            icore.di_format,
@@ -1499,13 +1523,14 @@ static char *
 first_dentry(xfs_ino_t *ino)
 {
     xfs.forw = 0;
-
+#ifdef DEBUG_XFS
    printf("first_dentry(): ino=%lu version=%d format=%d size=%lu is_v5=%d\n",
        (unsigned long long)*ino,
        inode->di_core.di_version,
        inode->di_core.di_format,
        (unsigned long long) le64(inode->di_core.di_size),
        xfs.is_v5);
+#endif
     switch (icore.di_format)
     {
     /* ----------------------------------------------------
@@ -1593,11 +1618,10 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
 
     	/* Accept XFS v4 and v5 */
     if (ver == XFS_SB_VERSION_5) {
-#ifdef DEBUG
+#ifdef DEBUG_XFS
         printf("xfs_mount: Detected XFS v5 filesystem (CRC-enabled)\n");
 #endif
         xfs.is_v5 = 1;       /* new flag */
-	printf("xfs_mount: XFS v5 (CRC-enabled) filesystem is not supported by aboot iteration=002\n");
     }
     else if (ver == XFS_SB_VERSION_4) {
         xfs.is_v5 = 0;
@@ -1627,7 +1651,7 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
                (sizeof (xfs_bmbt_key_t) + sizeof (xfs_bmbt_ptr_t)))
                 * sizeof(xfs_bmbt_key_t) + sizeof(xfs_btree_block_t);
 
-#ifdef DEBUG
+#ifdef DEBUG_XFS
        printf("XFS: version   = %d\n",le16(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS);
        printf("XFS: blocksize = %d\n",xfs.bsize);
 #endif
@@ -1842,12 +1866,12 @@ xfs_readdir(int fd, int rewind)
                return NULL;
        }
        if (rewind) {
-#ifdef DEBUG_XFS_2
+#ifdef DEBUG_XFS
                printf("xfs_readdir(): calling first_dentry()\n");
 #endif
        		return first_dentry (&xfs.new_ino);
        }
-#ifdef DEBUG_XFS_2
+#ifdef DEBUG_XFS
        printf("xfs_readdir(): calling next_dentry()\n");
 #endif
        return next_dentry (&xfs.new_ino);
