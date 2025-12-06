@@ -63,8 +63,20 @@ typedef        uint64_t        xfs_fsblock_t;  /* blockno in filesystem (agno|ag
 typedef        uint64_t        xfs_fileoff_t;  /* block number in a file */
 typedef        uint64_t        xfs_filblks_t;  /* number of blocks in a file */
 
+#define XFS_DIR3_DATA_MAGIC 0x58444433  /* 'XDD3' - dir3 data (v5) */
+#define XFS_DIR2_BLOCK_MAGIC 0x58444242 /* 'XDBB' - dir2 block dirs */
+#define XFS_DIR3_BLOCK_MAGIC 0x58444233 /* 'XDB3' - dir3 block dirs */
+#define XFS_DIR2_DATA_MAGIC 0x58443244  /* 'XD2D' - dir2 data (v4) */
 
-/* those are from xfs_sb.h */
+/* XFS directory block magic numbers */
+
+/* ----- DIR2 (classic, v4) ----- */
+#define XFS_DIR2_LEAF1_MAGIC   0xd2f1  /* leaf block (version 2), type 1 */
+#define XFS_DIR2_LEAFN_MAGIC   0xd2ff  /* leaf block (version 2), node type */
+
+/* ----- DIR3 (CRC-enabled, v5) ----- */
+#define XFS_DIR3_LEAF1_MAGIC   0x3df1  /* leaf block (version 3), type 1 */
+#define XFS_DIR3_LEAFN_MAGIC   0x3dff  /* leaf block (version 3), node type */
 
 #define XFS_SB_MAGIC            0x58465342      /* 'XFSB'*/
 #define	XFS_SB_VERSION_1	1		/* 5.3, 6.0.1, 6.1 */
@@ -470,8 +482,10 @@ typedef struct xfs_dir2_sf {
 
 /* those are from xfs_dinode.h */
 
+
 #define        XFS_DINODE_VERSION_1    1
 #define        XFS_DINODE_VERSION_2    2
+#define        XFS_DINODE_VERSION_3    3      /* v5 filesystem, CRC inode */
 #define        XFS_DINODE_MAGIC        0x494e  /* 'IN' */
 
 /*
