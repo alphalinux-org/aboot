@@ -21,7 +21,7 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-//#include <asm/system.h>
+
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -302,8 +302,6 @@ xfs_sf_is_dir3(void)
 }
 
 
-
-
 static inline xfs_agblock_t
 agino2agbno (xfs_agino_t agino)
 {
@@ -484,14 +482,14 @@ di_read (xfs_ino_t ino)
     devread (daddr, offset * xfs.isize, xfs.isize, (char *)inode);
 
 #ifdef DEBUG_XFS_2
-    printf("di_read(): ino=%llu agno=%u agino=%u offset=%d isize=%d\n",
+    printf("di_read(): ino=%lu agno=%u agino=%u offset=%d isize=%d\n",
            (unsigned long long) ino,
            (unsigned int) agno,
            (unsigned int) agino,
            offset,
            xfs.isize);
 
-    printf("di_read(): magic=0x%x version=%d format=%d size=%llu flags=0x%x is_v5=%d\n",
+    printf("di_read(): magic=0x%x version=%d format=%d size=%lu flags=0x%x is_v5=%d\n",
            le16(inode->di_core.di_magic),
            inode->di_core.di_version,
            inode->di_core.di_format,
@@ -504,7 +502,7 @@ di_read (xfs_ino_t ino)
      * Basic sanity checks
      * ------------------------------- */
     if (le16(inode->di_core.di_magic) != XFS_DINODE_MAGIC) {
-        printf("XFS: bad inode magic 0x%x for ino %llu\n",
+        printf("XFS: bad inode magic 0x%x for ino %lu\n",
                le16(inode->di_core.di_magic),
                (unsigned long long) ino);
         return 0;
@@ -514,7 +512,7 @@ di_read (xfs_ino_t ino)
     if (inode->di_core.di_version != 1 &&
         inode->di_core.di_version != 2 &&
         inode->di_core.di_version != 3) {
-        printf("XFS: unsupported inode version %d for ino %llu\n",
+        printf("XFS: unsupported inode version %d for ino %lu\n",
                inode->di_core.di_version,
                (unsigned long long) ino);
         return 0;
@@ -549,22 +547,15 @@ di_read (xfs_ino_t ino)
     		xfs.ptr0 = *(xfs_bmbt_ptr_t *)(dfork +
                  sizeof(xfs_bmdr_block_t) +
                  btroot_maxrecs() * sizeof(xfs_bmbt_key_t));
-
-
- 
-#ifdef DEBUG_XFS_2
-        printf("di_read(): BTREE dir, ptr0 = 0x%llx\n",
-               (unsigned long long) le64(xfs.ptr0));
-#endif
-
-	    printf("di_read(): ino=%llu di_version=%u di_format=%u di_size=%llu di_nextents=%u is_v5=%d\n",
-           (unsigned long long)ino,
+#ifdef DEBUG_XFS
+	   printf("di_read(): ino=%lu di_version=%u di_format=%u di_size=%lu di_nextents=%u is_v5=%d\n",
+	   (unsigned long long)ino,
            inode->di_core.di_version,
            inode->di_core.di_format,
            (unsigned long long)le64(inode->di_core.di_size),
            le32(inode->di_core.di_nextents),
            xfs.is_v5);
-
+#endif
     }
 
     return 1;
@@ -604,42 +595,39 @@ init_extents (void)
 	        /* Extent records start at the beginning of the data fork */
     		//xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
     		//xfs.nextents = le32(icore.di_nextents);
-    xfs_dinode_disk_t *dip = (xfs_dinode_disk_t *)inode;
+		xfs_dinode_disk_t *dip = (xfs_dinode_disk_t *)inode;
 
-    /* This is what older XFS used for data extents (still correct
-     * on non-NREXT64 filesystems and v1/v2 inodes).
-     */
-    uint32_t ne32 = le32(icore.di_nextents);
+		/* This is what older XFS used for data extents (still correct
+		 * on non-NREXT64 filesystems and v1/v2 inodes).
+		*/
+		uint32_t ne32 = le32(icore.di_nextents);
 
-    /* On v5 filesystems with NREXT64, the 8 bytes where older
-     * layouts had (di_pad[6] + di_flushiter) are now a union that
-     * may contain di_big_nextents (64-bit data extent count).
-     *
-     * Our xfs_dinode_disk_t still has di_pad[6] + di_flushiter,
-     * but that's exactly the same 8-byte region, so we can just
-     * reinterpret it as a BE64 big extent counter.
-     */
-    uint64_t be_big = 0;
-    memcpy(&be_big, dip->di_pad, sizeof(be_big)); /* di_pad[0..5] + di_flushiter */
-    uint64_t big = le64(be_big);
+		/* On v5 filesystems with NREXT64, the 8 bytes where older
+		 * layouts had (di_pad[6] + di_flushiter) are now a union that
+		 * may contain di_big_nextents (64-bit data extent count).
+		 *
+		 * Our xfs_dinode_disk_t still has di_pad[6] + di_flushiter,
+		 * but that's exactly the same 8-byte region, so we can just
+		 * reinterpret it as a BE64 big extent counter.
+		 */
+		uint64_t be_big = 0;
+		memcpy(&be_big, dip->di_pad, sizeof(be_big)); /* di_pad[0..5] + di_flushiter */
+		uint64_t big = le64(be_big);
 
-    uint32_t ne;
-    if (big != 0) {
-        /* NREXT64 case: di_big_nextents is valid and non-zero.
-         * We only need 32 bits in the bootloader; directories on
-         * a boot partition won't have anywhere near 2^32 extents.
-         */
-        ne = (uint32_t)big;
-    } else {
-        /* Legacy case: use 32-bit di_nextents */
-        ne = ne32;
-    }
+		uint32_t ne;
+		if (big != 0) {
+			/* NREXT64 case: di_big_nextents is valid and non-zero.
+			 * We only need 32 bits in the bootloader; directories on
+			 * a boot partition won't have anywhere near 2^32 extents.
+			 */
+			ne = (uint32_t)big;
 
-    xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
-    xfs.nextents = ne;
-
-    //printf("init_extents(): EXTENTS, nextents=%u (ne32=%u, big=%lu)\n",
-    //       xfs.nextents, ne32, (unsigned long long)big);
+		} else {
+			 /* Legacy case: use 32-bit di_nextents */
+			ne = ne32;
+		}
+		xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
+		xfs.nextents = ne;
                break;
        case XFS_DINODE_FMT_BTREE:
                ptr0 = xfs.ptr0;
@@ -714,35 +702,13 @@ xfs_dabread (void)
        }
 }
 
-static inline xfs_ino_t
-sf_ino (char *sfe, int namelen)
-{
-       void *p = sfe + namelen + 3;
-#ifdef __alpha__
-       xfs_ino_t ino = 0;
-       if (xfs.i8param == 0) {
-               memcpy(&ino, p, sizeof(xfs_dir2_ino8_t));
-               return le64(ino);
-       } else {
-               memcpy(&ino, p, sizeof(xfs_dir2_ino4_t));
-               return le32(ino);
-       }
-#else
-       /* unaligned access */
-       return (xfs.i8param == 0)
-               ? le64(*(xfs_ino_t *)p) : le32(*(uint32_t *)p);
-#endif
-}
-
-
-
 
 /* Get parent inode from shortform header (v4 & v5). */
 
 static inline xfs_ino_t
 sf_parent_ino(void)
 {
-    xfs_dir2_sf_t     *sf  = xfs_sf_dir();      /* your helper */
+    xfs_dir2_sf_t     *sf  = xfs_sf_dir();
     xfs_dir2_sf_hdr_t *hdr = &sf->hdr;
 
     return xfs_dir2_sf_get_ino(hdr, &hdr->parent);
@@ -942,7 +908,9 @@ first_dentry_local(xfs_ino_t *ino)
 
     xfs.forw   = 0;
     xfs.dirmax = hdr->count;          /* number of real entries (no . / ..) */
+#ifdef DEBUG_XFS
     printf("sf->hdr.count=%d\n",xfs.dirmax);
+#endif
     /* Keep i8param for old helpers, though we no longer rely on it here. */
     xfs.i8param = hdr->i8count ? 0 : 4;
 
@@ -1441,8 +1409,8 @@ next_dentry_dir2(xfs_ino_t *ino)
 
         /* --------------------------------------------------------
          * Read first 4 bytes of entry
-         *    ▪ free-entry: dau->unused.freetag == FREE_TAG
-         *    ▪ used-entry: beginning of inode number (LSB)
+         *    free-entry: dau->unused.freetag == FREE_TAG
+         *    used-entry: beginning of inode number (LSB)
          * -------------------------------------------------------- */
         if (xfs_read(dirbuf, 4) != 4) {
             printf("xfs: short read in dir2 entry\n");
