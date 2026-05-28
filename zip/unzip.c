@@ -46,8 +46,7 @@ int extended = 0; /* set if extended local header */
  *   the compressed data, from offsets inptr to insize-1 included.
  *   The magic header has already been checked. The output buffer is cleared.
  */
-void unzip(in, out)
-    int in, out;   /* input and output file descriptors */
+void unzip(int in, int out)
 {
     unsigned long orig_crc = 0;       /* original crc */
     unsigned long orig_len = 0;       /* original uncompressed length */
