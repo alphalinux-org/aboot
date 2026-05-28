@@ -1001,14 +1001,14 @@ ext2_mknod (struct ext2_inode *dip, char * name, int ino)
     if(entry_dp) {
 	entry_dp->inode = ino;
 	entry_dp->name_len = namelen;
-	strncpy(entry_dp->name, name, namelen);
+	memcpy(entry_dp->name, name, namelen);
 	ext2_bwrite(dip, diroffset/blocksize, dirbuf);
     }
     else {
 	entry_dp = (struct ext2_dir_entry *)dirbuf;
 	entry_dp->inode = ino;
 	entry_dp->name_len = namelen;
-	strncpy(entry_dp->name, name, namelen);
+	memcpy(entry_dp->name, name, namelen);
 	entry_dp->rec_len = blocksize;
 	ext2_bwrite(dip, dip->i_size/blocksize, dirbuf);
 	dip->i_size += blocksize;
