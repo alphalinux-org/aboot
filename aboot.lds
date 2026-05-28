@@ -1,20 +1,23 @@
 OUTPUT_FORMAT("elf64-alpha")
 ENTRY(__start)
-PHDRS { kernel PT_LOAD; }
+PHDRS {
+  text PT_LOAD FLAGS(5);
+  data PT_LOAD FLAGS(6);
+}
 SECTIONS
 {
   . = 0x20000000;
-  .text : { *(.text) } :kernel
+  .text : { *(.text) } :text
   _etext = .;
   PROVIDE (etext = .);
-  .rodata : { *(.rodata) } :kernel
-  .data : { *(.data) } :kernel
-  .got : { *(.got) } :kernel
-  .sdata : { *(.sdata) } :kernel
+  .rodata : { *(.rodata) } :text
+  .data : { *(.data) } :data
+  .got : { *(.got) } :data
+  .sdata : { *(.sdata) } :data
   _edata = .;
   PROVIDE (edata = .);
-  .sbss : { *(.sbss) *(.scommon) } :kernel
-  .bss : { *(.bss) *(COMMON) } :kernel
+  .sbss : { *(.sbss) *(.scommon) } :data
+  .bss : { *(.bss) *(COMMON) } :data
   _end = . ;
   PROVIDE (end = .);
 
