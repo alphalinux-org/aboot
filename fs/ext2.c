@@ -607,7 +607,7 @@ static struct ext2_inode * ext2_follow_link(struct ext2_inode * from,
 
 	/* Resolve relative links */
 	if (linkto[0] != '/') {
-		char *end = strrchr(base, '/');
+		const char *end = strrchr(base, '/');
 		if (end) {
 			char fullname[(end - base + 1) + strlen(linkto) + 1];
 			strncpy(fullname, base, end - base + 1);

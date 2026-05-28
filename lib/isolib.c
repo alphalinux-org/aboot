@@ -638,7 +638,7 @@ iso_follow_link(struct iso_inode *from, const char *basename)
 	/* Resolve relative links. */
 
 	if (linkto[0] !='/') {
-		char *end = strrchr(basename, '/');
+		const char *end = strrchr(basename, '/');
 		if (end) {
 			char fullname[(end - basename + 1) + strlen(linkto) + 1];
 			strncpy(fullname, basename, end - basename + 1);
