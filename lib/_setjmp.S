@@ -34,3 +34,5 @@ _setjmp:
 	ret	($26)
 
 	.end _setjmp
+
+	.section .note.GNU-stack,"",@progbits

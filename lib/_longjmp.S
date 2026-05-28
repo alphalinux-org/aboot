@@ -59,3 +59,5 @@ bad_magic:
 	call_pal PAL_halt
 
 	.end _longjmp
+
+	.section .note.GNU-stack,"",@progbits

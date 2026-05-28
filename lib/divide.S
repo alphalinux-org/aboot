@@ -158,3 +158,5 @@ sfunction:
 	subq	$31,$27,$27
 1:	ret	$31,($23),1
 	.end	sfunction
+
+	.section .note.GNU-stack,"",@progbits

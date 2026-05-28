@@ -170,3 +170,5 @@ run_kernel:
 	mov	$17,$30
 	jmp	$31,($27)
 	.end run_kernel
+
+	.section .note.GNU-stack,"",@progbits
