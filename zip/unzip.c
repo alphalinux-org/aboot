@@ -17,6 +17,7 @@
  */
 
 #include "gzip.h"
+#include "utils.h"	/* printf, for the DEBUG build */
 
 /* PKZIP header definitions */
 #define LOCSIG 0x04034b50L      /* four-byte lead-in (lsb first) */
