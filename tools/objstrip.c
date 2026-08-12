@@ -57,7 +57,7 @@ main (int argc, char *argv[])
     long offset;
 #ifdef __ELF__
     struct elfhdr *elf;
-    struct elf_phdr *elf_phdr;	/* program header */
+    struct elf_phdr *phdrs;	/* all program headers */
     unsigned long long e_entry;
 #endif
 
@@ -157,39 +157,106 @@ main (int argc, char *argv[])
 		    prog_name, elf->e_machine);
 	    exit(1);
 	}
-	if (elf->e_phnum != 1) {
-	    fprintf(stderr,
-		    "%s: %d program headers (forgot to link with -N?)\n",
-		    prog_name, elf->e_phnum);
-	}
+	/*
+	 * Flatten every PT_LOAD segment into one image starting at the lowest
+	 * p_vaddr.  aboot.lds deliberately splits text (R+E) from data (RW), so
+	 * there is more than one PT_LOAD; copying only the first silently drops
+	 * .data.  That also moves _end, and net_aboot locates its boot header at
+	 * align_512(&_end), so a truncated image makes the kernel and initrd
+	 * sizes read as garbage.
+	 */
+	unsigned long base = ~0UL, end = 0;
+	char *image;
 
 	e_entry = elf->e_entry;
 
+	phdrs = malloc((size_t) elf->e_phnum * sizeof(*phdrs));
+	if (!phdrs) {
+	    perror("malloc");
+	    exit(1);
+	}
 	lseek(fd, elf->e_phoff, SEEK_SET);
-	if (read(fd, buf, sizeof(*elf_phdr)) != sizeof(*elf_phdr)) {
+	if ((size_t) read(fd, phdrs, elf->e_phnum * sizeof(*phdrs))
+	    != elf->e_phnum * sizeof(*phdrs)) {
 	    perror("read");
 	    exit(1);
 	}
 
-	elf_phdr = (struct elf_phdr *) buf;
-	offset	 = elf_phdr->p_offset;
-	mem_size = elf_phdr->p_memsz;
-	fil_size = elf_phdr->p_filesz;
+	for (i = 0; i < elf->e_phnum; ++i) {
+	    if (phdrs[i].p_type != PT_LOAD || phdrs[i].p_memsz == 0) {
+		continue;
+	    }
+	    /* work around ELF bug: */
+	    if (phdrs[i].p_vaddr < e_entry
+		&& e_entry < phdrs[i].p_vaddr + phdrs[i].p_filesz) {
+		unsigned long delta = e_entry - phdrs[i].p_vaddr;
 
-	/* work around ELF bug: */
-	if (elf_phdr->p_vaddr < e_entry) {
-	    unsigned long delta = e_entry - elf_phdr->p_vaddr;
-	    offset   += delta;
-	    mem_size -= delta;
-	    fil_size -= delta;
-	    elf_phdr->p_vaddr += delta;
+		phdrs[i].p_offset += delta;
+		phdrs[i].p_memsz  -= delta;
+		phdrs[i].p_filesz -= delta;
+		phdrs[i].p_vaddr  += delta;
+	    }
+	    if (phdrs[i].p_vaddr < base) {
+		base = phdrs[i].p_vaddr;
+	    }
+	    if (phdrs[i].p_vaddr + phdrs[i].p_memsz > end) {
+		end = phdrs[i].p_vaddr + phdrs[i].p_memsz;
+	    }
+	}
+	if (base == ~0UL) {
+	    fprintf(stderr, "%s: no PT_LOAD segments\n", prog_name);
+	    exit(1);
+	}
+
+	mem_size = end - base;
+	if (pad) {
+	    mem_size = ((mem_size + pad - 1) / pad) * pad;
+	}
+	image = calloc(1, mem_size);
+	if (!image) {
+	    perror("calloc");
+	    exit(1);
+	}
+
+	for (i = 0; i < elf->e_phnum; ++i) {
+	    if (phdrs[i].p_type != PT_LOAD || phdrs[i].p_filesz == 0) {
+		continue;
+	    }
+	    if (verbose) {
+		fprintf(stderr,
+			"%s: extracting %#016lx-%#016lx (at %lx)\n",
+			prog_name, (unsigned long) phdrs[i].p_vaddr,
+			(unsigned long) (phdrs[i].p_vaddr + phdrs[i].p_filesz),
+			(unsigned long) phdrs[i].p_offset);
+	    }
+	    if (lseek(fd, phdrs[i].p_offset, SEEK_SET) != (off_t) phdrs[i].p_offset) {
+		perror("lseek");
+		exit(1);
+	    }
+	    if ((size_t) read(fd, image + (phdrs[i].p_vaddr - base),
+			      phdrs[i].p_filesz) != phdrs[i].p_filesz) {
+		perror("read");
+		exit(1);
+	    }
 	}
 
 	if (verbose) {
-	    fprintf(stderr, "%s: extracting %#016lx-%#016lx (at %lx)\n",
-		    prog_name, (unsigned long) elf_phdr->p_vaddr,
-		    (unsigned long)(elf_phdr->p_vaddr + fil_size), offset);
+	    fprintf(stderr, "%s: writing %lu byte image (bss zero-filled,"
+		    " aligned to %lu)\n",
+		    prog_name, (unsigned long) mem_size, pad);
 	}
+	tocopy = mem_size;
+	while (tocopy > 0) {
+	    nwritten = write(ofd, image + (mem_size - tocopy), tocopy);
+	    if ((ssize_t) nwritten == -1) {
+		perror("write");
+		exit(1);
+	    }
+	    tocopy -= nwritten;
+	}
+	free(image);
+	free(phdrs);
+	return 0;
     } else
 #endif
 #ifdef __alpha__
