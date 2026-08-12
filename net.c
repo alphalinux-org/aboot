@@ -37,23 +37,29 @@ dang (void)
 	printf("aboot: oops, unimplemented net-bfs function called!\n");
 }
 
-static char *src = 0;
+static char *src_base = 0;	/* start of the object being read */
+static long  src_size = 0;	/* its length, so reads can stop at EOF */
 static char *kern_src=0, *ird_src=0;
 static int  header_size=0, kern_size=0, ird_size=0;
 
 int
 net_bread (int fd, long blkno, long nblks, char * buf)
 {
-	int nbytes;
+	long offset = blkno * bfs->blocksize;
+	long nbytes = nblks * bfs->blocksize;
 
 #ifdef DEBUG
-	printf("net_bread: %p -> %p (%ld blocks at %ld)\n", src, buf,
-	       nblks, blkno);
+	printf("net_bread: %p+%lx -> %p (%ld blocks at %ld)\n",
+	       src_base, offset, buf, nblks, blkno);
 #endif
-	nbytes = bfs->blocksize * nblks;
+	if (!src_base || offset >= src_size) {
+		return 0;		/* EOF */
+	}
+	if (offset + nbytes > src_size) {
+		nbytes = src_size - offset;	/* short read at EOF */
+	}
 
-        memcpy(buf, src, nbytes);
-        src += nbytes;
+        memcpy(buf, src_base + offset, nbytes);
 
         return nbytes;
 }
@@ -89,6 +95,10 @@ read_initrd()
 	printf("aboot: loading initrd (%d bytes/%d blocks) at %#lx\n",
 	        ird_size, nblocks, initrd_start);
 	nread = (*bfs->bread)(-1, 0, nblocks, (char*) initrd_start);
+	if (nread != ird_size) {
+		printf("aboot: read %d of %d initrd bytes\n", nread, ird_size);
+		return -1;
+	}
 	return 0;
 }
 
@@ -116,7 +126,8 @@ load_kernel (void)
 #endif
 
 	if (ird_size) {
-		src = ird_src;
+		src_base = ird_src;
+		src_size = ird_size;
 		if (read_initrd() < 0) {
 			return -1;
 		}
@@ -125,9 +136,10 @@ load_kernel (void)
 	strcpy(boot_file, "network");
 
 	//Move kernel to safe place before uncompression
-	src = (char*)free_mem_ptr - align_pagesize(kern_size);
-	free_mem_ptr = (unsigned long)src;
-	memcpy(src, kern_src, kern_size);
+	src_base = (char*)free_mem_ptr - align_pagesize(kern_size);
+	src_size = kern_size;
+	free_mem_ptr = (unsigned long)src_base;
+	memcpy(src_base, kern_src, kern_size);
 
 	uncompress_kernel(-1);
 
