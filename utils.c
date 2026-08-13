@@ -138,12 +138,34 @@ void pal_init(void)
 	tbia();
 }
 
+void print_memory_map(void)
+{
+	struct memclust_struct *cluster;
+	struct memdesc_struct *memdesc;
+	unsigned long i;
+
+	memdesc = (struct memdesc_struct *)
+	    (INIT_HWRPB->mddt_offset + (unsigned long) INIT_HWRPB);
+
+	printf("aboot: %ld memory clusters\n", memdesc->numclusters);
+	for (cluster = memdesc->cluster, i = 0;
+	     i < memdesc->numclusters;
+	     i++, cluster++) {
+		printf("  %2ld: %#lx - %#lx usage %#lx%s\n", i,
+		       cluster->start_pfn << page_shift,
+		       ((cluster->start_pfn + cluster->numpages)
+			<< page_shift) - 1,
+		       cluster->usage,
+		       (cluster->usage & 3) ? " RESERVED" : "");
+	}
+}
+
 int check_memory(unsigned long start, unsigned long size)
 {
 	unsigned long phys_start, start_pfn, end_pfn;
 	struct memclust_struct *cluster;
 	struct memdesc_struct *memdesc;
-	int i;
+	unsigned long i;
 
 	/*
 	 * Get the physical address start.

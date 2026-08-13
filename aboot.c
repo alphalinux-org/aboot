@@ -256,6 +256,7 @@ main_ (void)
 	}
 
 	pal_init();
+	print_memory_map();
 	get_boot_args();
 	result = load_kernel();
 	if (result < 0) {

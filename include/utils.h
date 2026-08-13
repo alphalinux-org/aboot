@@ -17,6 +17,7 @@ void		free (void *ptr);
 void		getline (char *buf, int maxlen);
 #endif
 
+void		print_memory_map(void);
 int		check_memory(unsigned long, unsigned long);
 unsigned long	memory_end(void);
 extern unsigned long	free_mem_ptr;
