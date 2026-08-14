@@ -493,7 +493,7 @@ static int ext4_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buff
 {
     struct ext4_extent_header *hdr;
     struct ext4_extent *ext_base;
-    int entries;
+    int entries, maxentries;
     long cur_blk = blkno;     /* logical block we are at */
     long blocks_left = nblks; /* blocks still to read */
     char *bufp = buffer;
@@ -513,9 +513,23 @@ static int ext4_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buff
         return -1;
     }
 
+    /*
+     * eh_entries comes off the disk.  The inline extent area is
+     * i_block[] minus the header, so anything larger than that walks out
+     * of the inode and into whatever the inode table holds next.
+     */
+    maxentries = (sizeof(ip->i_block) - sizeof(*hdr)) / sizeof(struct ext4_extent);
+    if (hdr->eh_max && hdr->eh_max < maxentries)
+        maxentries = hdr->eh_max;
+
     entries  = hdr->eh_entries;
     if (entries <= 0) {
         printf("ext4_breadi: No extents.\n");
+        return -1;
+    }
+    if (entries > maxentries) {
+        printf("ext4_breadi: %d extents exceeds the %d that fit inline.\n",
+               entries, maxentries);
         return -1;
     }
 
