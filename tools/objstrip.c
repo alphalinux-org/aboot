@@ -54,7 +54,6 @@ main (int argc, char *argv[])
     size_t nwritten, tocopy, n, mem_size, fil_size, pad = 0;
     int fd, ofd, i, j, verbose = 0, primary = 0;
     char buf[8192], *inname;
-    struct exec * aout;		/* includes file & aout header */
     long offset;
 #ifdef __ELF__
     struct elfhdr *elf;
@@ -188,13 +187,14 @@ main (int argc, char *argv[])
 
 	if (verbose) {
 	    fprintf(stderr, "%s: extracting %#016lx-%#016lx (at %lx)\n",
-		    prog_name, (long) elf_phdr->p_vaddr,
-		    elf_phdr->p_vaddr + fil_size, offset);
+		    prog_name, (unsigned long) elf_phdr->p_vaddr,
+		    (unsigned long)(elf_phdr->p_vaddr + fil_size), offset);
 	}
     } else
 #endif
+#ifdef __alpha__
     {
-	aout = (struct exec *) buf;
+	struct exec * aout = (struct exec *) buf;
 
 	if (!(aout->fh.f_flags & COFF_F_EXEC)) {
 	    fprintf(stderr, "%s: %s is not in executable format\n",
@@ -223,6 +223,13 @@ main (int argc, char *argv[])
 		    aout->ah.text_start + fil_size, offset);
 	}
     }
+#else
+    {
+	fprintf(stderr, "%s: ECOFF format not supported on this architecture\n",
+		prog_name);
+	exit(1);
+    }
+#endif
 
     if (lseek(fd, offset, SEEK_SET) != offset) {
 	perror("lseek");

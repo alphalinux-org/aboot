@@ -1,7 +1,9 @@
 #ifndef __ALPHA_SYSTEM_H
 #define __ALPHA_SYSTEM_H
 
+#ifdef __alpha__
 #include <asm/pal.h>
+#endif
 #define PAGE_SHIFT	13
 #define PAGE_SIZE	(1UL << PAGE_SHIFT)
 #define PAGE_OFFSET	0xfffffc0000000000UL
@@ -49,6 +51,7 @@
 #define INITRD_SIZE		(*(unsigned long *) (PARAM+0x108))
 
 #ifndef __ASSEMBLY__
+#ifdef __alpha__
 #include <linux/kernel.h>
 
 /*
@@ -319,6 +322,7 @@ extern int __min_ipl;
 #define tbiap()		__tbi(-1, /* no second argument */)
 #define tbia()		__tbi(-2, /* no second argument */)
 
+#endif /* __alpha__ */
 #endif /* __ASSEMBLY__ */
 
 #define arch_align_stack(x) (x)
