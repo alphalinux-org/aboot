@@ -1743,7 +1743,7 @@ static int xfs_open(const char *dirname)
                if ((di_mode & IFMT) == IFLNK) {
                        if (++link_count > MAX_LINK_COUNT) {
                                printf("XFS error: symlink loop!\n");
-                               return 0;
+                               return -1;
                        }
                        if (di_size < xfs.bsize - 1) {
                                filepos = 0;
@@ -1751,7 +1751,7 @@ static int xfs_open(const char *dirname)
                                n = xfs_read (linkbuf, filemax);
                        } else {
                                printf("XFS error: bad file length!\n");
-                               return 0;
+                               return -1;
                        }
 
                        ino = (linkbuf[0] == '/') ? xfs.rootino : parent_ino;
@@ -1765,7 +1765,7 @@ static int xfs_open(const char *dirname)
                        if (((di_mode & IFMT) != IFREG)
                            && ((di_mode & IFMT) != IFDIR)) {
                                printf("XFS error: bad file type!\n");
-                               return 0;
+                               return -1;
                        }
                        filepos = 0;
                        filemax = di_size;
@@ -1774,7 +1774,7 @@ static int xfs_open(const char *dirname)
 
                if ((di_mode & IFMT) != IFDIR) {
                        printf("XFS error: bad file type!\n");
-                       return 0;
+                       return -1;
                }
 
                for (; *filename == '/'; filename++);
