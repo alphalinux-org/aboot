@@ -206,6 +206,19 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 	if (ext4_check_features(quiet) < 0)
 		return -1;
 
+	/*
+	 * s_blocks_count is the low half of a 64-bit count once the 64bit
+	 * feature is on.  Everything below, ngroups included, works in 32-bit
+	 * block numbers, so a filesystem that actually needs the high half is
+	 * one we cannot address.
+	 */
+	if ((sb.s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT)
+	    && sb.s_blocks_count_hi) {
+		if (!quiet)
+			printf("ext2/4: filesystem larger than 2^32 blocks\n");
+		return -1;
+	}
+
 	ngroups = (sb.s_blocks_count -
 		   sb.s_first_data_block +
 		   EXT2_BLOCKS_PER_GROUP(&sb) - 1)
@@ -269,6 +282,31 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 			     off += group_desc_size, g++) {
 				memcpy(&gds[g], blkbuf + off,
 				       sizeof(struct ext2_group_desc));
+
+				/*
+				 * The upper halves of the block numbers live
+				 * in the second half of a 64-byte descriptor,
+				 * which we do not keep.  They are zero on any
+				 * filesystem small enough for that to be
+				 * irrelevant; if they are not, we would read
+				 * from the wrong block rather than fail.
+				 */
+				if (group_desc_size >=
+				    sizeof(struct ext4_group_desc)) {
+					const struct ext4_group_desc *g4 =
+					    (const struct ext4_group_desc *)
+					    (blkbuf + off);
+
+					if (g4->bg_block_bitmap_hi
+					    || g4->bg_inode_bitmap_hi
+					    || g4->bg_inode_table_hi) {
+						if (!quiet)
+							printf("ext2/4: group %d"
+							       " is beyond 2^32"
+							       " blocks\n", g);
+						return -1;
+					}
+				}
 			}
 			done += chunk;
 		}
