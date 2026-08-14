@@ -233,23 +233,46 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 
 	/* read in the group descriptors (immediately follows superblock) */
 
-        gdt_start = partition_offset +
-            ext2fs.blocksize *
-            (EXT2_MIN_BLOCK_SIZE / ext2fs.blocksize + 1);
+	gdt_start = partition_offset +
+		ext2fs.blocksize *
+		(EXT2_MIN_BLOCK_SIZE / ext2fs.blocksize + 1);
 
-        for (i = 0; i < ngroups; i++) {
-            long off = gdt_start + (long)i * group_desc_size;
-            size_t toread = sizeof(struct ext2_group_desc);
+	/*
+	 * Descriptors are group_desc_size apart on disk but only the first
+	 * sizeof(struct ext2_group_desc) bytes are laid out the way we read
+	 * them, so copy that much out of each.  Both sizes are powers of two
+	 * no larger than the block size and the table starts on a block
+	 * boundary, so no descriptor straddles a chunk.
+	 */
+	{
+		long gdt_bytes = (long) ngroups * group_desc_size;
+		long done = 0;
+		int g = 0;
 
-            if (toread > group_desc_size)
-                toread = group_desc_size;
+		while (done < gdt_bytes && g < ngroups) {
+			long chunk = gdt_bytes - done;
+			long off;
 
-            if (cons_read(dev, &gds[i], toread, off) != (long)toread) {
-                if (!quiet)
-                    printf("ext2/4: group descriptor %d read failed\n", i);
-                return -1;
-            }
-        }
+			if (chunk > ext2fs.blocksize)
+				chunk = ext2fs.blocksize;
+
+			if (cons_read(dev, blkbuf, chunk, gdt_start + done)
+			    != chunk) {
+				if (!quiet)
+					printf("ext2/4: group descriptor read"
+					       " failed at %ld\n", done);
+				return -1;
+			}
+
+			for (off = 0;
+			     off + group_desc_size <= chunk && g < ngroups;
+			     off += group_desc_size, g++) {
+				memcpy(&gds[g], blkbuf + off,
+				       sizeof(struct ext2_group_desc));
+			}
+			done += chunk;
+		}
+	}
 
 	/*
 	 * Calculate direct/indirect block limits for this file system
