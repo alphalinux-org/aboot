@@ -198,8 +198,9 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
         group_desc_size = sizeof(struct ext2_group_desc);
 
     if (group_desc_size < sizeof(struct ext2_group_desc)) {
-        printf("ext2/4: group descriptor size %u too small\n",
-               group_desc_size);
+        if (!quiet)
+            printf("ext2/4: group descriptor size %u too small\n",
+                   group_desc_size);
         return -1;
     }
 	if (ext4_check_features(quiet) < 0)
@@ -211,15 +212,17 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 		/ EXT2_BLOCKS_PER_GROUP(&sb);
 
 	ext2fs.blocksize = EXT2_BLOCK_SIZE(&sb);
-	if (group_desc_size > ext2fs.blocksize) {
-		printf("ext2/4: group descriptor size %u > blocksize %u\n",
-		group_desc_size, ext2fs.blocksize);
+	if (group_desc_size > (unsigned int) ext2fs.blocksize) {
+		if (!quiet)
+			printf("ext2/4: group descriptor size %u > blocksize %d\n",
+			       group_desc_size, ext2fs.blocksize);
 		return -1;
 	}
 
 	gds = malloc((size_t)(ngroups * sizeof(struct ext2_group_desc)));
 	if (!gds) {
-		printf("ext2: no memory for group descriptors\n");
+		if (!quiet)
+			printf("ext2: no memory for group descriptors\n");
 		return -1;
 	}
 
@@ -242,7 +245,8 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
                 toread = group_desc_size;
 
             if (cons_read(dev, &gds[i], toread, off) != (long)toread) {
-                printf("ext2/4: group descriptor %d read failed\n", i);
+                if (!quiet)
+                    printf("ext2/4: group descriptor %d read failed\n", i);
                 return -1;
             }
         }
