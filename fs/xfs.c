@@ -431,9 +431,6 @@ fsb2daddr (xfs_fsblock_t fsbno)
                         (xfs_agblock_t)(fsbno & mask32lo(xfs.agblklog)));
 }
 
-#undef offsetof
-#define offsetof(t,m)  ((int)&(((t *)0)->m))
-
 static inline int
 btroot_maxrecs (void)
 {
