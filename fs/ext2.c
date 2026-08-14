@@ -50,6 +50,8 @@ extern struct bootfs ext2fs;
 
 static struct ext2_super_block sb;
 static struct ext2_group_desc *gds;
+static size_t gds_alloc;		/* bytes gds already has */
+static int blkbuf_alloc;		/* bytes each block buffer already has */
 static struct ext2_inode *root_inode = NULL;
 static int ngroups = 0;
 static long directlim;			/* Maximum direct blkno */
@@ -158,6 +160,7 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 	long sb_block = 1;
 	long sb_offset;
 	long gdt_start;
+	size_t gds_bytes;
 	int i;
 
 	dev = cons_dev;
@@ -232,17 +235,44 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 		return -1;
 	}
 
-	gds = malloc((size_t)(ngroups * sizeof(struct ext2_group_desc)));
-	if (!gds) {
-		if (!quiet)
-			printf("ext2: no memory for group descriptors\n");
-		return -1;
+	/*
+	 * aboot's free() does nothing, so a mount that allocates and then
+	 * fails, or a second mount of another partition, would consume the
+	 * heap for good.  mount_fs() now probes every filesystem claiming
+	 * the partition type, which makes both routine.  Hold on to what we
+	 * allocated and reuse it whenever it is already big enough.
+	 */
+	gds_bytes = (size_t)(ngroups * sizeof(struct ext2_group_desc));
+	if (gds_bytes > gds_alloc) {
+		gds = malloc(gds_bytes);
+		if (!gds) {
+			gds_alloc = 0;
+			if (!quiet)
+				printf("ext2: no memory for group"
+				       " descriptors\n");
+			return -1;
+		}
+		gds_alloc = gds_bytes;
 	}
 
-	blkbuf = malloc(ext2fs.blocksize);
-	iblkbuf = malloc(ext2fs.blocksize);
-	diblkbuf = malloc(ext2fs.blocksize);
-	tiblkbuf = malloc(ext2fs.blocksize);
+	if (ext2fs.blocksize > blkbuf_alloc) {
+		blkbuf = malloc(ext2fs.blocksize);
+		iblkbuf = malloc(ext2fs.blocksize);
+		diblkbuf = malloc(ext2fs.blocksize);
+		tiblkbuf = malloc(ext2fs.blocksize);
+		if (!blkbuf || !iblkbuf || !diblkbuf || !tiblkbuf) {
+			blkbuf_alloc = 0;
+			if (!quiet)
+				printf("ext2: no memory for block buffers\n");
+			return -1;
+		}
+		blkbuf_alloc = ext2fs.blocksize;
+	}
+
+	/* The indirect block cache describes the filesystem we just left. */
+	cached_iblkno = -1;
+	cached_diblkno = -1;
+	cached_tiblkno = -1;
 
 	/* read in the group descriptors (immediately follows superblock) */
 
