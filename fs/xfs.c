@@ -1623,10 +1623,13 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
        partition_offset = p_offset;
 
        if (cons_read (cons_dev, &super, sizeof(super), partition_offset) != sizeof(super)) {
-               printf("xfs_mount: read_disk_block failed!\n");
+               if (!quiet)
+                       printf("xfs_mount: read_disk_block failed!\n");
                return -1;
        } else if (le32(super.sb_magicnum) != XFS_SB_MAGIC) {
-               printf("xfs_mount: Bad magic: %x\n", super.sb_magicnum);
+               if (!quiet)
+                       printf("xfs_mount: Bad magic: %x\n",
+                              le32(super.sb_magicnum));
                return -1;
        } else {
         unsigned int ver = le16(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS;
@@ -1642,7 +1645,8 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
         xfs.is_v5 = 0;
     }
     else {
-        printf("xfs_mount: unsupported XFS version %u\n", ver);
+        if (!quiet)
+            printf("xfs_mount: unsupported XFS version %u\n", ver);
         return -1;
     }
 
