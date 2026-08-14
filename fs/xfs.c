@@ -1732,20 +1732,30 @@ xfs_read (void *buf, long len)
 static int
 xfs_bread(int fd, long blkno, long nblks, char *buffer)
 {
-       if (fd == 1) {
-               /*
-                * Duh. XFS doesn't read past EOF
-                * aboot does just that by trying to read nblks*blksize,
-                * where nblks*blksize > filesize
-                */
-               memset(buffer,0,nblks*xfs.bsize);
-               long nbytes = xfs_read(buffer, nblks*xfs.bsize);
-               if (nbytes == le64(icore.di_size))
-                       return nblks*xfs.bsize;
-               return (int)nbytes;
+       long offset, nbytes;
+
+       if (fd != 1) {
+               printf("XFS error: bad file descriptor!\n");
+               return -1;
        }
-       printf("XFS error: bad file descriptor!\n");
-       return -1;
+
+       offset = blkno * xfs.bsize;
+       if (offset >= filemax)
+               return 0;                       /* EOF */
+
+       nbytes = nblks * xfs.bsize;
+       if (offset + nbytes > filemax)
+               nbytes = filemax - offset;      /* short read at EOF */
+
+       /*
+        * aboot asks for whole blocks, so the tail of the last one is not
+        * backed by the file.  Zero the buffer rather than hand back
+        * whatever was there.
+        */
+       memset(buffer, 0, nblks * xfs.bsize);
+
+       filepos = offset;
+       return xfs_read(buffer, nbytes);
 }
 
 /*
