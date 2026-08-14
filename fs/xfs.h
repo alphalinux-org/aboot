@@ -152,8 +152,23 @@ typedef struct xfs_sb
        uint32_t        sb_unit;        /* stripe or raid unit */
        uint32_t        sb_width;       /* stripe or raid width */      
        uint8_t sb_dirblklog;   /* log2 of dir block size (fsbs) */
-        uint8_t       sb_dummy[7];    /* padding */
+       uint8_t sb_logsectlog;  /* log2 of the log sector size */
+       uint16_t        sb_logsectsize; /* sector size for the log, bytes */
+       uint32_t        sb_logsunit;    /* stripe unit size for the log */
+       uint32_t        sb_features2;   /* additional feature bits (v4) */
+       /* version 5 superblock fields start here */
+       uint32_t        sb_bad_features2;
+       uint32_t        sb_features_compat;
+       uint32_t        sb_features_ro_compat;
+       uint32_t        sb_features_incompat;
+       uint32_t        sb_features_log_incompat;
 } xfs_sb_t;
+
+/* sb_features2, on a v4 filesystem */
+#define XFS_SB_VERSION2_FTYPE          0x00000200
+
+/* sb_features_incompat, on a v5 filesystem */
+#define XFS_SB_FEAT_INCOMPAT_FTYPE     0x00000001
 
 
 /* those are from xfs_btree.h */

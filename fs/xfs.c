@@ -189,6 +189,7 @@ struct xfs_info {
        xfs_ino_t rootino;
        xfs_ino_t new_ino;
        int is_v5;
+       int has_ftype;
        char* data_fork;
 };
 
@@ -323,12 +324,11 @@ xfs_sf_dir(void)
     return (xfs_dir2_sf_t *)xfs_dfork_dptr();
 }
 
-/* Are we dealing with dir3-style shortform (v5 + ftype)? */
+/* Does a shortform entry carry the file type byte? */
 static inline int
 xfs_sf_is_dir3(void)
 {
-    /* Good enough approximation for aboot: v5 filesystem ⇒ dir3 shortform */
-    return xfs.is_v5;   /* or (xfs.is_v5 && icore.di_version >= 3) if you prefer */
+    return xfs.has_ftype;
 }
 
 
@@ -785,7 +785,7 @@ xfs_count_dir3_entries(void)
 {
     uint32_t magic;
     int count = 0;
-    int has_ftype = xfs.is_v5;
+    int has_ftype = xfs.has_ftype;
     xfs_dir3_block_tail_t tail;
     int data_end;
 
@@ -1015,8 +1015,8 @@ xfs_sf_ino_from_entry(xfs_dir2_sf_entry_t *sfe)
     /* Start at end of name */
     p = (uint8_t *)sfe->name + sfe->namelen;
 
-    /* On v5/ftype=1 shortform dirs, name[namelen] is ftype, so skip it. */
-    if (xfs.is_v5)
+    /* With ftype, name[namelen] is the file type byte, so skip it. */
+    if (xfs.has_ftype)
         p++;
 
     if (hdr->i8count) {
@@ -1085,8 +1085,8 @@ xfs_dir3_sf_entsize(xfs_dir2_sf_hdr_t *hdr, int namelen)
 static inline int
 xfs_sf_entsize(xfs_dir2_sf_hdr_t *hdr, int namelen)
 {
-    return xfs.is_v5 ? xfs_dir3_sf_entsize(hdr, namelen)
-                     : xfs_dir2_sf_entsize(hdr, namelen);
+    return xfs.has_ftype ? xfs_dir3_sf_entsize(hdr, namelen)
+                         : xfs_dir2_sf_entsize(hdr, namelen);
 }
 /* Get parent inode from shortform header */
 static inline xfs_ino_t
@@ -1193,7 +1193,7 @@ first_dentry_dir3(xfs_ino_t *ino)
 static char *
 next_dentry_dir3(xfs_ino_t *ino)
 {
-    int has_ftype = xfs.is_v5;   /* ftype present on your fs */
+    int has_ftype = xfs.has_ftype;
 
 #define d2u ((xfs_dir2_data_union_t *)dirbuf)
 
@@ -1694,6 +1694,20 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
 
  
        }
+
+       /*
+        * The file type byte in directory entries is a feature bit, not a
+        * property of the superblock version: a v4 filesystem made with
+        * "mkfs.xfs -m ftype=1" carries it too, and every v5 filesystem
+        * has it.  Entry sizes are computed from this, so getting it from
+        * the version alone misparses every directory on such a v4.
+        */
+       if (xfs.is_v5)
+               xfs.has_ftype = (le32(super.sb_features_incompat)
+                                & XFS_SB_FEAT_INCOMPAT_FTYPE) != 0;
+       else
+               xfs.has_ftype = (le32(super.sb_features2)
+                                & XFS_SB_VERSION2_FTYPE) != 0;
 
        xfs.bsize = le32 (super.sb_blocksize);
        xfs.blklog = super.sb_blocklog;
