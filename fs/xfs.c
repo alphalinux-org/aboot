@@ -718,20 +718,6 @@ sf_parent_ino(void)
 }
 
 
-static void debug_dump_sf_bytes(void)
-{
-    unsigned char *p = (unsigned char *)xfs_sf_dir();
-    int i;
-
-    printf("SF RAW DUMP (first 128 bytes):\n");
-
-    for (i = 0; i < 128; i++) {
-        printf("%02x ", p[i]);
-        if ((i % 16) == 15)
-            printf("\n");
-    }
-    printf("\n");
-}
 static inline int
 roundup8 (int n)
 {
