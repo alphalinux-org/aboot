@@ -15,10 +15,10 @@ ifeq ($(TESTING),)
 libaboot.a: vsprintf.o memcpy.o memset.o string.o _setjmp.o \
 	_longjmp.o isolib.o __divqu.o __remqu.o __divlu.o \
 	__remlu.o
-	ar cru $@ $?
+	$(AR) cru $@ $?
 else
 libaboot.a: isolib.o
-	ar cru $@ $?
+	$(AR) cru $@ $?
 endif
 
 clean:

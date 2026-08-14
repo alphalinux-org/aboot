@@ -8,6 +8,19 @@
 # Copyright (c) 1995, 1996 by David Mosberger (davidm@cs.arizona.edu)
 #
 
+CROSS_COMPILE	?= alpha-unknown-linux-gnu-
+
+HOSTCC		?= gcc
+HOSTCFLAGS	?= -g -O2 -Wall
+
+CC		= $(CROSS_COMPILE)gcc
+AS		= $(CROSS_COMPILE)as
+LD		= $(CROSS_COMPILE)ld
+AR		= $(CROSS_COMPILE)ar
+STRIP		= $(CROSS_COMPILE)strip
+OBJCOPY		= $(CROSS_COMPILE)objcopy
+NM		= $(CROSS_COMPILE)nm
+
 # location of linux kernel sources (must be absolute path):
 KSRC		= /usr/src/linux
 VMLINUX		= $(KSRC)/vmlinux
@@ -83,7 +96,7 @@ bootloader.h: net_aboot.nh b2c
 	./b2c net_aboot.nh bootloader.h bootloader
 
 netabootwrap: netabootwrap.c bootloader.h
-	$(CC) $@.c $(CFLAGS) -o $@
+	$(HOSTCC) $@.c -o $@
 
 
 bootlx:	aboot tools/objstrip
@@ -119,7 +132,7 @@ vmlinux.bootp: net_aboot.nh $(VMLINUXGZ) net_pad
 	cat net_aboot.nh $(VMLINUXGZ) net_pad > $@
 
 net_aboot.nh: net_aboot tools/objstrip
-	strip net_aboot
+	$(STRIP) net_aboot
 	tools/objstrip -vb net_aboot $@
 
 net_aboot: $(ABOOT_OBJS) $(ABOOT_OBJS) $(NET_OBJS) $(LIBS)
@@ -140,10 +153,10 @@ lib/%:
 	make -C lib $* CPPFLAGS="$(CPPFLAGS)" TESTING="$(TESTING)"
 
 tools/%:
-	make -C tools $* CPPFLAGS="$(CPPFLAGS)"
+	make -C tools $* CPPFLAGS="$(CPPFLAGS)" CC="$(HOSTCC)" CFLAGS="$(HOSTCFLAGS)"
 
 sdisklabel/%:
-	make -C sdisklabel $* CPPFLAGS="$(CPPFLAGS)"
+	make -C sdisklabel $* CPPFLAGS="$(CPPFLAGS)" CC="$(HOSTCC)" CFLAGS="$(HOSTCFLAGS)"
 
 vmlinux.nh: $(VMLINUX) tools/objstrip
 	tools/objstrip -vb $(VMLINUX) vmlinux.nh

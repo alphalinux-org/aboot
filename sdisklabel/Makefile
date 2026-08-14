@@ -1,4 +1,4 @@
-override CFLAGS += -g -O2 -I../include -Wall $(CPPFLAGS)
+override CFLAGS += -I../include $(CPPFLAGS)
 
 all:	sdisklabel swriteboot
 
