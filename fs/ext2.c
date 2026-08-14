@@ -535,7 +535,7 @@ static int ext4_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buff
 
     /* --- honour file size like ext2_breadi() does --- */
     if ((blkno + nblks) * ext2fs.blocksize > ip->i_size) {
-        long maxblk = (ip->i_size + ext2fs.blocksize) / ext2fs.blocksize;
+        long maxblk = (ip->i_size + ext2fs.blocksize - 1) / ext2fs.blocksize;
         nblks = maxblk - blkno;
         if (nblks <= 0)
             return 0;  /* nothing to read */
@@ -636,7 +636,8 @@ static int ext2_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buff
 
 	tot_bytes = 0;
 	if ((blkno+nblks)*ext2fs.blocksize > ip->i_size)
-		nblks = (ip->i_size + ext2fs.blocksize) / ext2fs.blocksize - blkno;
+		nblks = (ip->i_size + ext2fs.blocksize - 1) / ext2fs.blocksize
+			- blkno;
 
 	while (nblks) {
 		/*
