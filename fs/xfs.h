@@ -70,6 +70,9 @@ typedef        uint64_t        xfs_filblks_t;  /* number of blocks in a file */
 /* XFS directory block magic numbers */
 
 /* ----- DIR2 (classic, v4) ----- */
+/* Maximum height of a directory/attribute btree, from the XFS format spec. */
+#define XFS_DA_NODE_MAXDEPTH   5
+
 #define XFS_DIR2_LEAF1_MAGIC   0xd2f1  /* leaf block (version 2), type 1 */
 #define XFS_DIR2_LEAFN_MAGIC   0xd2ff  /* leaf block (version 2), node type */
 

@@ -685,11 +685,11 @@ next_extent (void)
 /*
  * Name lies - the function reads only first 100 bytes
  */
-static void
+static int
 xfs_dabread (void)
 {
        xad_t *xad;
-       xfs_fileoff_t offset;;
+       xfs_fileoff_t offset;
 
        init_extents ();
        while ((xad = next_extent ())) {
@@ -697,9 +697,11 @@ xfs_dabread (void)
                if (isinxt (xfs.dablk, offset, xad->len)) {
                        devread (fsb2daddr (xad->start + xfs.dablk - offset),
                                 0, 100, dirbuf);
-                       break;
+                       return 0;
                }
        }
+       /* No extent covers xfs.dablk: dirbuf still holds the previous block. */
+       return -1;
 }
 
 
@@ -882,7 +884,10 @@ next_dentry(xfs_ino_t *ino)
                 return NULL;
 
             xfs.dablk = xfs.forw;
-            xfs_dabread();
+            if (xfs_dabread() < 0) {
+                printf("xfs: dir2 leaf block %u not found\n", xfs.dablk);
+                return NULL;
+            }
 
 #define h ((xfs_dir2_leaf_hdr_t *)dirbuf)
             xfs.dirmax = le16(h->count) - le16(h->stale);
@@ -1271,6 +1276,8 @@ next_dentry_dir3(xfs_ino_t *ino)
 static char *
 first_dentry_dir2(xfs_ino_t *ino)
 {
+    int depth;
+
     xfs.forw = 0;
     filepos  = 0;
 
@@ -1341,9 +1348,12 @@ first_dentry_dir2(xfs_ino_t *ino)
         /* Starting dablk for leaf / node search, per XFS rules */
         xfs.dablk = (1ULL << 35) >> xfs.blklog;
 
-        for (;;)
+        for (depth = 0; depth <= XFS_DA_NODE_MAXDEPTH; depth++)
         {
-            xfs_dabread();
+            if (xfs_dabread() < 0) {
+                printf("xfs: dir2 node block %u not found\n", xfs.dablk);
+                return NULL;
+            }
 
             xfs_dir2_leaf_hdr_t *lh = (xfs_dir2_leaf_hdr_t *)dirbuf;
             xfs_da_intnode_t    *n  = (xfs_da_intnode_t *)dirbuf;
@@ -1368,6 +1378,12 @@ first_dentry_dir2(xfs_ino_t *ino)
 
             /* Follow B-tree "before" pointer */
             xfs.dablk = le32(n->btree[0].before);
+        }
+
+        if (depth > XFS_DA_NODE_MAXDEPTH) {
+            printf("xfs: dir2 node tree deeper than %d levels\n",
+                   XFS_DA_NODE_MAXDEPTH);
+            return NULL;
         }
     }
 
