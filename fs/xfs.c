@@ -356,31 +356,35 @@ ino2offset (xfs_ino_t ino)
        return ino & XFS_INO_MASK(XFS_INO_OFFSET_BITS);
 }
 
-/* XFS is big endian, alpha is little endian */
-#define le16(x) __swab16(x)
-#define le32(x) __swab32(x)
-#define le64(x) __swab64(x)
+/*
+ * XFS metadata is big-endian on disk and Alpha is little-endian, so
+ * every on-disk field has to be swapped on the way in.  aboot only ever
+ * runs on Alpha; a big-endian port would make these no-ops.
+ */
+#define be16_to_cpu(x) __swab16(x)
+#define be32_to_cpu(x) __swab32(x)
+#define be64_to_cpu(x) __swab64(x)
 
 static xfs_fsblock_t
 xt_start (xfs_bmbt_rec_32_t *r)
 {
-       return (((xfs_fsblock_t)(le32 (r->l1) & mask32lo(9))) << 43) | 
-              (((xfs_fsblock_t)le32 (r->l2)) << 11) |
-              (((xfs_fsblock_t)le32 (r->l3)) >> 21);
+       return (((xfs_fsblock_t)(be32_to_cpu(r->l1) & mask32lo(9))) << 43) | 
+              (((xfs_fsblock_t)be32_to_cpu(r->l2)) << 11) |
+              (((xfs_fsblock_t)be32_to_cpu(r->l3)) >> 21);
 }
 
 static xfs_fileoff_t
 xt_offset (xfs_bmbt_rec_32_t *r)
 {
-       return (((xfs_fileoff_t)le32 (r->l0) &
+       return (((xfs_fileoff_t)be32_to_cpu(r->l0) &
                mask32lo(31)) << 23) |
-               (((xfs_fileoff_t)le32 (r->l1)) >> 9);
+               (((xfs_fileoff_t)be32_to_cpu(r->l1)) >> 9);
 }
 
 static xfs_filblks_t
 xt_len (xfs_bmbt_rec_32_t *r)
 {
-       return le32(r->l3) & mask32lo(21);
+       return be32_to_cpu(r->l3) & mask32lo(21);
 }
 
 static const char xfs_highbit[256] = {
@@ -539,20 +543,20 @@ di_read (xfs_ino_t ino)
            xfs.isize);
 
     printf("di_read(): magic=0x%x version=%d format=%d size=%lu flags=0x%x is_v5=%d\n",
-           le16(inode->di_core.di_magic),
+           be16_to_cpu(inode->di_core.di_magic),
            inode->di_core.di_version,
            inode->di_core.di_format,
-           (unsigned long long) le64(inode->di_core.di_size),
-           le16(inode->di_core.di_flags),
+           (unsigned long long) be64_to_cpu(inode->di_core.di_size),
+           be16_to_cpu(inode->di_core.di_flags),
            xfs.is_v5);
 #endif
 
     /* -------------------------------
      * Basic sanity checks
      * ------------------------------- */
-    if (le16(inode->di_core.di_magic) != XFS_DINODE_MAGIC) {
+    if (be16_to_cpu(inode->di_core.di_magic) != XFS_DINODE_MAGIC) {
         printf("XFS: bad inode magic 0x%x for ino %lu\n",
-               le16(inode->di_core.di_magic),
+               be16_to_cpu(inode->di_core.di_magic),
                (unsigned long long) ino);
         return 0;
     }
@@ -608,8 +612,8 @@ di_read (xfs_ino_t ino)
 	   (unsigned long long)ino,
            inode->di_core.di_version,
            inode->di_core.di_format,
-           (unsigned long long)le64(inode->di_core.di_size),
-           le32(inode->di_core.di_nextents),
+           (unsigned long long)be64_to_cpu(inode->di_core.di_size),
+           be32_to_cpu(inode->di_core.di_nextents),
            xfs.is_v5);
 #endif
     }
@@ -650,13 +654,13 @@ init_extents (void)
        case XFS_DINODE_FMT_EXTENTS:
 	        /* Extent records start at the beginning of the data fork */
     		//xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
-    		//xfs.nextents = le32(icore.di_nextents);
+    		//xfs.nextents = be32_to_cpu(icore.di_nextents);
 		xfs_dinode_disk_t *dip = (xfs_dinode_disk_t *)inode;
 
 		/* This is what older XFS used for data extents (still correct
 		 * on non-NREXT64 filesystems and v1/v2 inodes).
 		*/
-		uint32_t ne32 = le32(icore.di_nextents);
+		uint32_t ne32 = be32_to_cpu(icore.di_nextents);
 
 		/* On v5 filesystems with NREXT64, the 8 bytes where older
 		 * layouts had (di_pad[6] + di_flushiter) are now a union that
@@ -668,7 +672,7 @@ init_extents (void)
 		 */
 		uint64_t be_big = 0;
 		memcpy(&be_big, dip->di_pad, sizeof(be_big)); /* di_pad[0..5] + di_flushiter */
-		uint64_t big = le64(be_big);
+		uint64_t big = be64_to_cpu(be_big);
 
 		uint32_t ne;
 		if (big != 0) {
@@ -688,12 +692,12 @@ init_extents (void)
        case XFS_DINODE_FMT_BTREE:
                ptr0 = xfs.ptr0;
                for (;;) {
-                       xfs.daddr = fsb2daddr (le64(ptr0));
+                       xfs.daddr = fsb2daddr (be64_to_cpu(ptr0));
                        devread (xfs.daddr, 0,
                                 sizeof(xfs_btree_lblock_t), (char *)&h);
                        if (!h.bb_level) {
-                               xfs.nextents = le16(h.bb_numrecs);
-                               xfs.next = fsb2daddr (le64(h.bb_rightsib));
+                               xfs.nextents = be16_to_cpu(h.bb_numrecs);
+                               xfs.next = fsb2daddr (be64_to_cpu(h.bb_rightsib));
                                xfs.fpos = sizeof(xfs_btree_block_t);
                                return;
                        }
@@ -720,8 +724,8 @@ next_extent (void)
                                return NULL;
                        xfs.daddr = xfs.next;
                        devread (xfs.daddr, 0, sizeof(xfs_btree_lblock_t), (char *)&h);
-                       xfs.nextents = le16(h.bb_numrecs);
-                       xfs.next = fsb2daddr (le64(h.bb_rightsib));
+                       xfs.nextents = be16_to_cpu(h.bb_numrecs);
+                       xfs.next = fsb2daddr (be64_to_cpu(h.bb_rightsib));
                        xfs.fpos = sizeof(xfs_btree_block_t);
                }
                /* Yeah, I know that's slow, but I really don't care */
@@ -798,7 +802,7 @@ xfs_count_dir3_entries(void)
         printf("xfs: failed to read dir3 block magic\n");
         return 0;
     }
-    magic = le32(magic);
+    magic = be32_to_cpu(magic);
 
     if (magic != XFS_DIR3_DATA_MAGIC && magic != XFS_DIR3_BLOCK_MAGIC) {
         printf("xfs: unsupported DIR3 block magic: 0x%x\n", magic);
@@ -822,7 +826,7 @@ xfs_count_dir3_entries(void)
         }
 
         /* Convert endianness */
-        uint32_t leaf_count = le32(tail.count);
+        uint32_t leaf_count = be32_to_cpu(tail.count);
         long leaf_bytes = (long) leaf_count * sizeof(xfs_dir2_leaf_entry_t);
         long avail = (long) xfs.dirbsize - sizeof(xfs_dir3_block_tail_t);
 
@@ -855,8 +859,8 @@ xfs_count_dir3_entries(void)
         xfs.blkoff += 4;
 
         /* Free entry? */
-        if (le16(u.unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
-            uint16_t len = le16(u.unused.length);
+        if (be16_to_cpu(u.unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
+            uint16_t len = be16_to_cpu(u.unused.length);
             int skip = roundup8(len) - 4;  /* 4 already read */
             if (skip < 0) skip = 0;
 
@@ -932,8 +936,8 @@ next_dentry(xfs_ino_t *ino)
             }
 
 #define h ((xfs_dir2_leaf_hdr_t *)dirbuf)
-            xfs.dirmax = le16(h->count) - le16(h->stale);
-            xfs.forw   = le32(h->info.forw);
+            xfs.dirmax = be16_to_cpu(h->count) - be16_to_cpu(h->stale);
+            xfs.forw   = be32_to_cpu(h->info.forw);
 #undef h
             xfs.dirpos = 0;
         }
@@ -985,7 +989,7 @@ first_dentry_local(xfs_ino_t *ino)
            (unsigned long long)*ino,
            icore.di_version,
            icore.di_format,
-           (long long)le64(icore.di_size),
+           (long long)be64_to_cpu(icore.di_size),
            xfs.is_v5);
     printf("sf->hdr.count = %u\n", hdr->count);
 #endif
@@ -1022,11 +1026,11 @@ xfs_sf_ino_from_entry(xfs_dir2_sf_entry_t *sfe)
     if (hdr->i8count) {
         /* 8-byte inode */
         memcpy(&ino, p, sizeof(xfs_dir2_ino8_t));
-        ino = le64(ino) & 0x00ffffffffffffffULL;
+        ino = be64_to_cpu(ino) & 0x00ffffffffffffffULL;
     } else {
         uint32_t v32;
         memcpy(&v32, p, sizeof(xfs_dir2_ino4_t));
-        ino = le32(v32);
+        ino = be32_to_cpu(v32);
     }
 
     return ino;
@@ -1097,9 +1101,9 @@ sf_parent_ino_sf(void)
     uint8_t           *p   = (uint8_t *)&hdr->parent;
 
     if (hdr->i8count)
-        return (xfs_ino_t)le64(*(xfs_ino_t *)p);
+        return (xfs_ino_t)be64_to_cpu(*(xfs_ino_t *)p);
     else
-        return (xfs_ino_t)le32(*(uint32_t *)p);
+        return (xfs_ino_t)be32_to_cpu(*(uint32_t *)p);
 }
 
 
@@ -1113,12 +1117,12 @@ xfs_dir2_sf_get_ino(xfs_dir2_sf_hdr_t *hdr, xfs_dir2_inou_t *from)
     if (hdr->i8count) {
         /* 64-bit inode stored big-endian in from->i8.i[8] */
         memcpy(&ino, &from->i8, sizeof(xfs_dir2_ino8_t));
-        ino = le64(ino);                        /* swap from disk BE to CPU */
+        ino = be64_to_cpu(ino);                        /* swap from disk BE to CPU */
         ino &= 0x00ffffffffffffffULL;           /* top byte reserved */
     } else {
         uint32_t v = 0;
         memcpy(&v, &from->i4, sizeof(xfs_dir2_ino4_t));
-        ino = le32(v);
+        ino = be32_to_cpu(v);
     }
     return ino;
 }
@@ -1217,7 +1221,7 @@ next_dentry_dir3(xfs_ino_t *ino)
                     printf("xfs: read error in DIR3 block header\n");
                     return NULL;
                 }
-                magic = le32(magic);
+                magic = be32_to_cpu(magic);
 
                 if (magic != XFS_DIR3_DATA_MAGIC &&
                     magic != XFS_DIR3_BLOCK_MAGIC) {
@@ -1242,8 +1246,8 @@ next_dentry_dir3(xfs_ino_t *ino)
             xfs.blkoff += 4;
 
             /* Free entry? */
-            if (le16(d2u->unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
-                uint16_t len = le16(d2u->unused.length);
+            if (be16_to_cpu(d2u->unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
+                uint16_t len = be16_to_cpu(d2u->unused.length);
                 int skip = roundup8(len) - 4;   /* 4 already read */
 
                 if (skip < 0)
@@ -1265,7 +1269,7 @@ next_dentry_dir3(xfs_ino_t *ino)
         }
         xfs.blkoff += 5;
 
-        *ino = le64(d2u->entry.inumber);
+        *ino = be64_to_cpu(d2u->entry.inumber);
         int namelen = d2u->entry.namelen;
 
         /* Skip bogus entries. */
@@ -1353,7 +1357,7 @@ first_dentry_dir2(xfs_ino_t *ino)
         return NULL;
     }
 
-    uint32_t magic = le32(((xfs_dir2_data_hdr_t *)dirbuf)->magic);
+    uint32_t magic = be32_to_cpu(((xfs_dir2_data_hdr_t *)dirbuf)->magic);
 
 #ifdef DEBUG_XFS_2
     printf("DIR2 header magic = 0x%x\n", magic);
@@ -1375,7 +1379,7 @@ first_dentry_dir2(xfs_ino_t *ino)
         }
 
         tail = (xfs_dir2_block_tail_t *)dirbuf;
-        xfs.dirmax = le32(tail->count) - le32(tail->stale);
+        xfs.dirmax = be32_to_cpu(tail->count) - be32_to_cpu(tail->stale);
 
 #ifdef DEBUG_XFS_2
         printf("DIR2 block-format: dirmax=%d\n", xfs.dirmax);
@@ -1400,7 +1404,7 @@ first_dentry_dir2(xfs_ino_t *ino)
             xfs_dir2_leaf_hdr_t *lh = (xfs_dir2_leaf_hdr_t *)dirbuf;
             xfs_da_intnode_t    *n  = (xfs_da_intnode_t *)dirbuf;
 
-            uint16_t m = le16(n->hdr.info.magic);
+            uint16_t m = be16_to_cpu(n->hdr.info.magic);
 
 #ifdef DEBUG_XFS_2
             printf("DIR2 leaf/node scan: magic=0x%x\n", m);
@@ -1408,8 +1412,8 @@ first_dentry_dir2(xfs_ino_t *ino)
 
             if (m == XFS_DIR2_LEAF1_MAGIC || m == XFS_DIR2_LEAFN_MAGIC)
             {
-                xfs.dirmax = le16(lh->count) - le16(lh->stale);
-                xfs.forw   = le32(lh->info.forw);
+                xfs.dirmax = be16_to_cpu(lh->count) - be16_to_cpu(lh->stale);
+                xfs.forw   = be32_to_cpu(lh->info.forw);
 
 #ifdef DEBUG_XFS_2
                 printf("DIR2 leaf-format: dirmax=%d forw=%u\n",
@@ -1419,7 +1423,7 @@ first_dentry_dir2(xfs_ino_t *ino)
             }
 
             /* Follow B-tree "before" pointer */
-            xfs.dablk = le32(n->btree[0].before);
+            xfs.dablk = be32_to_cpu(n->btree[0].before);
         }
 
         if (depth > XFS_DA_NODE_MAXDEPTH) {
@@ -1479,7 +1483,7 @@ next_dentry_dir2(xfs_ino_t *ino)
                 printf("xfs: read error in DIR2 block header\n");
                 return NULL;
             }
-            magic = le32(magic);
+            magic = be32_to_cpu(magic);
 
             /* Valid DIR2 magic values */
             if (magic != XFS_DIR2_DATA_MAGIC &&
@@ -1508,7 +1512,7 @@ next_dentry_dir2(xfs_ino_t *ino)
         /* Free entry? */
         if (dau->unused.freetag == XFS_DIR2_DATA_FREE_TAG) {
 
-            uint32_t len = le16(dau->unused.length);
+            uint32_t len = be16_to_cpu(dau->unused.length);
 
             /* Length includes the 4 bytes we already consumed */
             toread = roundup8(len) - 4;
@@ -1535,7 +1539,7 @@ next_dentry_dir2(xfs_ino_t *ino)
         return NULL;
     }
 
-    *ino    = le64(dau->entry.inumber);
+    *ino    = be64_to_cpu(dau->entry.inumber);
     namelen = dau->entry.namelen;
 
     /* Skip bogus entries */
@@ -1585,7 +1589,7 @@ first_dentry(xfs_ino_t *ino)
        (unsigned long long)*ino,
        inode->di_core.di_version,
        inode->di_core.di_format,
-       (unsigned long long) le64(inode->di_core.di_size),
+       (unsigned long long) be64_to_cpu(inode->di_core.di_size),
        xfs.is_v5);
 #endif
     switch (icore.di_format)
@@ -1611,7 +1615,7 @@ first_dentry(xfs_ino_t *ino)
             printf("xfs: failed to read directory block header\n");
             return NULL;
         }
-        magic = le32(magic);
+        magic = be32_to_cpu(magic);
 
 #ifdef DEBUG_XFS_2
         printf("first_dentry(): directory block magic = 0x%x\n", magic);
@@ -1668,13 +1672,13 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
                if (!quiet)
                        printf("xfs_mount: read_disk_block failed!\n");
                return -1;
-       } else if (le32(super.sb_magicnum) != XFS_SB_MAGIC) {
+       } else if (be32_to_cpu(super.sb_magicnum) != XFS_SB_MAGIC) {
                if (!quiet)
                        printf("xfs_mount: Bad magic: %x\n",
-                              le32(super.sb_magicnum));
+                              be32_to_cpu(super.sb_magicnum));
                return -1;
        } else {
-        unsigned int ver = le16(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS;
+        unsigned int ver = be16_to_cpu(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS;
 
     	/* Accept XFS v4 and v5 */
     if (ver == XFS_SB_VERSION_5) {
@@ -1703,24 +1707,24 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
         * the version alone misparses every directory on such a v4.
         */
        if (xfs.is_v5)
-               xfs.has_ftype = (le32(super.sb_features_incompat)
+               xfs.has_ftype = (be32_to_cpu(super.sb_features_incompat)
                                 & XFS_SB_FEAT_INCOMPAT_FTYPE) != 0;
        else
-               xfs.has_ftype = (le32(super.sb_features2)
+               xfs.has_ftype = (be32_to_cpu(super.sb_features2)
                                 & XFS_SB_VERSION2_FTYPE) != 0;
 
-       xfs.bsize = le32 (super.sb_blocksize);
+       xfs.bsize = be32_to_cpu(super.sb_blocksize);
        xfs.blklog = super.sb_blocklog;
        xfs.bdlog = xfs.blklog - SECTOR_BITS;
-       xfs.rootino = le64 (super.sb_rootino);
-       xfs.isize = le16 (super.sb_inodesize);
-       xfs.agblocks = le32 (super.sb_agblocks);
-       xfs.agcount = le32 (super.sb_agcount);
+       xfs.rootino = be64_to_cpu(super.sb_rootino);
+       xfs.isize = be16_to_cpu(super.sb_inodesize);
+       xfs.agblocks = be32_to_cpu(super.sb_agblocks);
+       xfs.agcount = be32_to_cpu(super.sb_agcount);
        xfs.dirbsize = xfs.bsize << super.sb_dirblklog;
 
        xfs.inopblog = super.sb_inopblog;
        xfs.agblklog = super.sb_agblklog;
-       xfs.agnolog = xfs_highbit32 (le32(super.sb_agcount));
+       xfs.agnolog = xfs_highbit32 (be32_to_cpu(super.sb_agcount));
 
        /*
         * Everything below reads into fixed regions of FSYS_BUF, so the
@@ -1768,7 +1772,7 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
                 * sizeof(xfs_bmbt_key_t) + sizeof(xfs_btree_block_t);
 
 #ifdef DEBUG_XFS
-       printf("XFS: version   = %d\n",le16(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS);
+       printf("XFS: version   = %d\n",be16_to_cpu(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS);
        printf("XFS: blocksize = %d\n",xfs.bsize);
 #endif
        dev = cons_dev;
@@ -1887,8 +1891,8 @@ static int xfs_open(const char *dirname)
        link_count = 0;
        for (;;) {
                di_read (ino);
-               di_size = le64 (icore.di_size);
-               di_mode = le16 (icore.di_mode);
+               di_size = be64_to_cpu(icore.di_size);
+               di_mode = be16_to_cpu(icore.di_mode);
 
 #ifdef DEBUG_XFS
                printf("xfs_open(): di_mode = %o\n", di_mode);
@@ -2009,7 +2013,7 @@ xfs_readdir(int fd, int rewind)
 
        if (fd != 1)
                return NULL;
-       if ((le16 (icore.di_mode) & IFMT) != IFDIR) {
+       if ((be16_to_cpu(icore.di_mode) & IFMT) != IFDIR) {
                printf("Not a directory!\n");
                return NULL;
        }
@@ -2035,16 +2039,16 @@ xfs_fstat(int fd, struct stat* buf)
                return -1;
 
        memset(buf, 0, sizeof(struct stat));
-       buf->st_mode   = le16(icore.di_mode);
-       //buf->st_flags  = le16(icore.di_flags);
-       buf->st_nlink  = le16(icore.di_onlink);
-       buf->st_uid    = le32(icore.di_uid);
-       buf->st_gid    = le32(icore.di_gid);
-       buf->st_size   = le64(icore.di_size);
-       buf->st_blocks = le64(icore.di_nblocks);
-       buf->st_atime  = le32(icore.di_atime.t_sec);
-       buf->st_mtime  = le32(icore.di_mtime.t_sec);
-       buf->st_ctime  = le32(icore.di_ctime.t_sec);
+       buf->st_mode   = be16_to_cpu(icore.di_mode);
+       //buf->st_flags  = be16_to_cpu(icore.di_flags);
+       buf->st_nlink  = be16_to_cpu(icore.di_onlink);
+       buf->st_uid    = be32_to_cpu(icore.di_uid);
+       buf->st_gid    = be32_to_cpu(icore.di_gid);
+       buf->st_size   = be64_to_cpu(icore.di_size);
+       buf->st_blocks = be64_to_cpu(icore.di_nblocks);
+       buf->st_atime  = be32_to_cpu(icore.di_atime.t_sec);
+       buf->st_mtime  = be32_to_cpu(icore.di_mtime.t_sec);
+       buf->st_ctime  = be32_to_cpu(icore.di_ctime.t_sec);
        return 0;
 }
 
