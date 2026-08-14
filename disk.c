@@ -299,7 +299,7 @@ mount_fs (long dev, int partition)
 {
 	struct d_partition * part;
 	const struct bootfs * fs = 0;
-	int i;
+	int i, candidates;
 
 #ifdef DEBUG
 	printf("mount_fs(%lx, %d)\n", dev, partition);
@@ -328,17 +328,38 @@ mount_fs (long dev, int partition)
 			return 0;
 		}
 		part = &label->d_partitions[partition - 1];
+		/*
+		 * The disklabel type does not identify the filesystem
+		 * uniquely: xfsfs registers as FS_EXT2 too, because that is
+		 * what mkfs leaves in the label.  Try every filesystem
+		 * claiming the type, and keep the first that mounts.  Only
+		 * stay quiet when there is more than one candidate to try --
+		 * with a single candidate, a mount failure is real and its
+		 * specific diagnostic (bad magic, unsupported features, ...)
+		 * is worth keeping rather than the generic message below.
+		 */
+		candidates = 0;
 		for (i = 0; i < (int)(sizeof(bootfs)/sizeof(bootfs[0])); i++) {
-			if (bootfs[i]->fs_type == part->p_fstype) {
-			        fs = bootfs[i];
-				if (!((*fs->mount)(dev, (long)(part->p_offset) * (long)(label->d_secsize), 1)
-				< 0))
-				return fs;
-			}
+			if (bootfs[i]->fs_type == part->p_fstype)
+				candidates++;
 		}
-		printf("aboot: don't know how to mount "
-		       "partition %d (filesystem type %d)\n",
-	  	        partition, part->p_fstype);
+		for (i = 0; i < (int)(sizeof(bootfs)/sizeof(bootfs[0])); i++) {
+			if (bootfs[i]->fs_type != part->p_fstype)
+				continue;
+			fs = bootfs[i];
+			if ((*fs->mount)(dev,
+					 (long)(part->p_offset) *
+					 (long)(label->d_secsize),
+					 candidates > 1) >= 0)
+				return fs;
+		}
+		if (candidates == 0)
+			printf("aboot: don't know how to mount "
+			       "partition %d (filesystem type %d)\n",
+			       partition, part->p_fstype);
+		else
+			printf("aboot: mount of partition %d failed\n",
+			       partition);
 		return 0;
 	}
 	return fs;
