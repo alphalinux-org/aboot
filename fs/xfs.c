@@ -1797,6 +1797,10 @@ static int xfs_open(const char *dirname)
 #endif
 
                name = first_dentry (&xfs.new_ino);
+               if (name == NULL) {
+                       *rest = ch;
+                       return -1;
+               }
                for (;;) {
 #ifdef DEBUG_XFS
                        if (name)
