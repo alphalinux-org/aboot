@@ -3,9 +3,9 @@ override ASFLAGS += $(CPPFLAGS) -D__ASSEMBLY__
 
 ifeq ($(TESTING),)
 ifeq ($(FOREIGN),"yes")
-override CFLAGS	+= -Os -Wall -ffreestanding
+override CFLAGS	+= -Os -Wall -ffreestanding -fno-stack-protector
 else
-override CFLAGS += -Os -Wall -mno-fp-regs -ffreestanding
+override CFLAGS += -Os -Wall -mno-fp-regs -ffreestanding -fno-stack-protector
 endif
 else
 override CFLAGS += -Os -g3 -Wall

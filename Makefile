@@ -49,7 +49,7 @@ ABOOT_LDFLAGS = -static -N -Taboot.lds --relax
 
 ifeq ($(TESTING),)
 override CPPFLAGS	+= $(CFGDEFS) -U_FORTIFY_SOURCE -Iinclude
-override CFLAGS		+= $(CPPFLAGS) -Os -Wall -ffreestanding -mno-fp-regs -msmall-data -msmall-text
+override CFLAGS		+= $(CPPFLAGS) -Os -Wall -ffreestanding -fno-stack-protector -mno-fp-regs -msmall-data -msmall-text
 else
 override CPPFLAGS	+= -DTESTING $(CFGDEFS) -U_FORTIFY_SOURCE -Iinclude
 override CFLAGS		+= $(CPPFLAGS) -O -g3 -Wall
