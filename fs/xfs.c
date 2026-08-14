@@ -129,7 +129,21 @@ typedef struct xfs_dir3_block_tail {
 static int
 devread(long sector, long start, long length, void *buf)
 {
-       long pos = sector * SECT_SIZE;
+       long pos;
+
+       /*
+        * agb2daddr() returns -1 for a block pointer the superblock's own
+        * geometry says cannot exist.  Every caller feeds that straight
+        * here, so this is where it has to stop: turning it into an offset
+        * would read from somewhere well before the partition.
+        */
+       if (sector < 0 || start < 0 || length < 0) {
+               printf("xfs: refusing read of %ld bytes at sector %ld+%ld\n",
+                      length, sector, start);
+               return -1;
+       }
+
+       pos = sector * SECT_SIZE;
        pos += partition_offset + start;
 #ifdef DEBUG_XFS2
        printf("Reading %ld bytes, starting at sector %ld, disk offset %ld\n",
@@ -153,6 +167,7 @@ struct xfs_info {
        int dirbsize;
        int isize;
        unsigned int agblocks;
+       unsigned int agcount;
        int bdlog;
        int blklog;
        int inopblog;
@@ -432,6 +447,18 @@ isinxt (xfs_fileoff_t key, xfs_fileoff_t offset, xfs_filblks_t len)
 static xfs_daddr_t
 agb2daddr (xfs_agnumber_t agno, xfs_agblock_t agbno)
 {
+       /*
+        * Extent records and btree pointers come straight off disk; a
+        * corrupt one must not be allowed to turn into an arbitrary disk
+        * address for devread() to read from.
+        */
+       if (agno >= xfs.agcount || agbno >= xfs.agblocks) {
+               printf("xfs: corrupt block pointer (ag %u blk %u, have %u ags of %u blocks)\n",
+                      (unsigned int) agno, (unsigned int) agbno,
+                      xfs.agcount, xfs.agblocks);
+               return (xfs_daddr_t) -1;
+       }
+
        return ((xfs_fsblock_t)agno*xfs.agblocks + agbno) << xfs.bdlog;
 }
 
@@ -442,12 +469,22 @@ fsb2daddr (xfs_fsblock_t fsbno)
                         (xfs_agblock_t)(fsbno & mask32lo(xfs.agblklog)));
 }
 
+/*
+ * Returns the number of records the BTREE root can hold, or -1 if
+ * di_forkoff/xfs.isize is too small to even hold the root header --
+ * a corrupt inode should never be trusted to size a pointer into itself.
+ */
 static inline int
 btroot_maxrecs (void)
 {
        int tmp = icore.di_forkoff ? (icore.di_forkoff << 3) : xfs.isize;
+       int hdrsize = sizeof(xfs_bmdr_block_t) + offsetof(xfs_dinode_t, di_u);
 
-       return (tmp - sizeof(xfs_bmdr_block_t) - offsetof(xfs_dinode_t, di_u)) /
+       if (tmp < hdrsize) {
+               return -1;
+       }
+
+       return (tmp - hdrsize) /
                (sizeof (xfs_bmbt_key_t) + sizeof (xfs_bmbt_ptr_t));
 }
 
@@ -555,10 +592,17 @@ di_read (xfs_ino_t ino)
      */
 	if (inode->di_core.di_format == XFS_DINODE_FMT_BTREE) {
     		char *dfork = xfs_dfork_dptr(); /* start of data fork (v2/v3 aware) */
+    		int maxrecs = btroot_maxrecs();
+
+    		if (maxrecs < 0) {
+    			printf("XFS: bad btree root for ino %lu\n",
+    			       (unsigned long long) ino);
+    			return 0;
+    		}
 
     		xfs.ptr0 = *(xfs_bmbt_ptr_t *)(dfork +
                  sizeof(xfs_bmdr_block_t) +
-                 btroot_maxrecs() * sizeof(xfs_bmbt_key_t));
+                 maxrecs * sizeof(xfs_bmbt_key_t));
 #ifdef DEBUG_XFS
 	   printf("di_read(): ino=%lu di_version=%u di_format=%u di_size=%lu di_nextents=%u is_v5=%d\n",
 	   (unsigned long long)ino,
@@ -1657,11 +1701,52 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
        xfs.rootino = le64 (super.sb_rootino);
        xfs.isize = le16 (super.sb_inodesize);
        xfs.agblocks = le32 (super.sb_agblocks);
+       xfs.agcount = le32 (super.sb_agcount);
        xfs.dirbsize = xfs.bsize << super.sb_dirblklog;
 
        xfs.inopblog = super.sb_inopblog;
        xfs.agblklog = super.sb_agblklog;
        xfs.agnolog = xfs_highbit32 (le32(super.sb_agcount));
+
+       /*
+        * Everything below reads into fixed regions of FSYS_BUF, so the
+        * geometry has to fit them.  These all come off the disk, and
+        * di_read() hands sb_inodesize straight to devread().
+        */
+       if (xfs.blklog < SECTOR_BITS || xfs.blklog > 16
+           || xfs.bsize != (1 << xfs.blklog)) {
+               if (!quiet)
+                       printf("xfs_mount: bad block size %d (log %d)\n",
+                              xfs.bsize, xfs.blklog);
+               return -1;
+       }
+       if (xfs.isize < 256 || xfs.isize > INODE_SIZE) {
+               if (!quiet)
+                       printf("xfs_mount: inode size %d out of range\n",
+                              xfs.isize);
+               return -1;
+       }
+       if (super.sb_dirblklog > 8
+           || xfs.dirbsize < (int) sizeof(xfs_dir3_data_hdr_t)) {
+               if (!quiet)
+                       printf("xfs_mount: bad directory block size %d\n",
+                              xfs.dirbsize);
+               return -1;
+       }
+       /*
+        * agblklog and inopblog are used as shift counts (fsb2daddr(),
+        * the XFS_INO_*_BITS macros); an out-of-range value is undefined
+        * behavior in C and would turn a corrupt superblock into garbage
+        * inode/block addresses fed straight to devread().
+        */
+       if (xfs.agblklog < 0 || xfs.agblklog > 31
+           || xfs.inopblog < 0 || xfs.inopblog > 31
+           || xfs.agblklog + xfs.inopblog > 31) {
+               if (!quiet)
+                       printf("xfs_mount: bad agblklog/inopblog (%d/%d)\n",
+                              xfs.agblklog, xfs.inopblog);
+               return -1;
+       }
 
        xfs.btnode_ptr0_off =
                ((xfs.bsize - sizeof(xfs_btree_block_t)) /
