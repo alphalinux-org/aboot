@@ -11,7 +11,11 @@
 CROSS_COMPILE	?= alpha-unknown-linux-gnu-
 
 HOSTCC		?= gcc
-HOSTCFLAGS	?= -g -O2 -Wall
+# b2c, netabootwrap, tools/ and sdisklabel/ are ordinary programs for the
+# machine doing the build.  Default to the flags the build was invoked with,
+# taken before the bootloader's freestanding and code-model flags are added
+# below.
+HOSTCFLAGS	:= $(if $(HOSTCFLAGS),$(HOSTCFLAGS),$(if $(CFLAGS),$(CFLAGS),-g -O2 -Wall))
 
 CC		= $(CROSS_COMPILE)gcc
 AS		= $(CROSS_COMPILE)as
@@ -92,11 +96,14 @@ diskboot:	bootlx sdisklabel/sdisklabel sdisklabel/swriteboot \
 
 netboot: vmlinux.bootp
 
+b2c: b2c.c
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ $<
+
 bootloader.h: net_aboot.nh b2c
 	./b2c net_aboot.nh bootloader.h bootloader
 
 netabootwrap: netabootwrap.c bootloader.h
-	$(HOSTCC) $@.c -o $@
+	$(HOSTCC) $@.c $(HOSTCFLAGS) -Iinclude -o $@
 
 
 bootlx:	aboot tools/objstrip
