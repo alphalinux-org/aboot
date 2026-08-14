@@ -99,8 +99,9 @@ char * strchr(const char * s,char c)
 char * strrchr(const char * s,char c)
 {
 	const char * r = NULL;
-	while (*s++)
+	do {
 		if (*s == c) r = s;
+	} while (*s++);
 	return (char *) r;
 }
 
