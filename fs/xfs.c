@@ -1721,8 +1721,13 @@ static int xfs_open(const char *dirname)
        char linkbuf[xfs.bsize];
        char *rest, *name, ch;
        char namebuf[MAXNAMELEN];
-       strncpy(namebuf,dirname,MAXNAMELEN);
        char *filename = namebuf;
+
+       if (strlen(dirname) >= MAXNAMELEN) {
+               printf("XFS error: path too long!\n");
+               return -1;
+       }
+       strcpy(namebuf, dirname);
 
 
 #ifdef DEBUG_XFS
