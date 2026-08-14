@@ -1150,103 +1150,113 @@ next_dentry_dir3(xfs_ino_t *ino)
 
 #define d2u ((xfs_dir2_data_union_t *)dirbuf)
 
+    /*
+     * One iteration per entry handed back.  A bogus entry starts the next
+     * iteration instead of recursing: a directory full of them used to
+     * recurse once per entry, and the bootloader's stack has nothing
+     * below it to catch that.
+     */
     for (;;) {
-        /* At end of this DIR3 data block? Go to next block. */
-        if (xfs.blkoff >= xfs.dirbsize) {
-            uint32_t magic;
+        for (;;) {
+            /* At end of this DIR3 data block? Go to next block. */
+            if (xfs.blkoff >= xfs.dirbsize) {
+                uint32_t magic;
 
-            /* Align filepos down to the start of this block. */
-            filepos &= ~(xfs.dirbsize - 1);
+                /* Align filepos down to the start of this block. */
+                filepos &= ~(xfs.dirbsize - 1);
 
-            /* Read block magic. */
-            if (xfs_read(&magic, sizeof(magic)) != sizeof(magic)) {
-                printf("xfs: read error in DIR3 block header\n");
+                /* Read block magic. */
+                if (xfs_read(&magic, sizeof(magic)) != sizeof(magic)) {
+                    printf("xfs: read error in DIR3 block header\n");
+                    return NULL;
+                }
+                magic = le32(magic);
+
+                if (magic != XFS_DIR3_DATA_MAGIC &&
+                    magic != XFS_DIR3_BLOCK_MAGIC) {
+                    printf("xfs: invalid DIR3 block magic: 0x%x\n", magic);
+                    return NULL;
+                }
+
+                /* Skip full v5 header. */
+                xfs.blkoff = sizeof(xfs_dir3_data_hdr_t);
+                filepos   |= xfs.blkoff;
+            }
+
+            /* Stop when we reach the tail (v5 tail, 12 bytes, not the v4 8-byte one) */
+            if (xfs.blkoff + sizeof(xfs_dir3_block_tail_t) >= xfs.dirbsize)
+                return NULL;
+
+            /* Read first 4 bytes of the next slot */
+            if (xfs_read(dirbuf, 4) != 4) {
+                /* This is end-of-dir, not an error */
                 return NULL;
             }
-            magic = le32(magic);
+            xfs.blkoff += 4;
 
-            if (magic != XFS_DIR3_DATA_MAGIC &&
-                magic != XFS_DIR3_BLOCK_MAGIC) {
-                printf("xfs: invalid DIR3 block magic: 0x%x\n", magic);
-                return NULL;
+            /* Free entry? */
+            if (le16(d2u->unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
+                uint16_t len = le16(d2u->unused.length);
+                int skip = roundup8(len) - 4;   /* 4 already read */
+
+                if (skip < 0)
+                    skip = 0;
+
+                filepos    += skip;
+                xfs.blkoff += skip;
+                continue;   /* look at next slot */
             }
 
-            /* Skip full v5 header. */
-            xfs.blkoff = sizeof(xfs_dir3_data_hdr_t);
-            filepos   |= xfs.blkoff;
-        }
-	/* Stop when we reach the tail (v5 tail, 12 bytes, not the v4 8-byte one) */
-if (xfs.blkoff + sizeof(xfs_dir3_block_tail_t) >= xfs.dirbsize)
-    return NULL;
-
-/* Read first 4 bytes of the next slot */
-if (xfs_read(dirbuf, 4) != 4) {
-    /* This is end-of-dir, not an error */
-    return NULL;
-}
-        xfs.blkoff += 4;
-
-        /* Free entry? */
-        if (le16(d2u->unused.freetag) == XFS_DIR2_DATA_FREE_TAG) {
-            uint16_t len = le16(d2u->unused.length);
-            int skip = roundup8(len) - 4;   /* 4 already read */
-
-            if (skip < 0)
-                skip = 0;
-
-            filepos    += skip;
-            xfs.blkoff += skip;
-            continue;   /* look at next slot */
+            /* Used entry found. */
+            break;
         }
 
-        /* Used entry found. */
-        break;
-    }
-
-    /* Read rest of fixed header: remaining 4 bytes of inumber + namelen. */
-    if (xfs_read((char *)dirbuf + 4, 5) != 5) {
-        printf("xfs: short read in dir3 entry header\n");
-        return NULL;
-    }
-    xfs.blkoff += 5;
-
-    *ino = le64(d2u->entry.inumber);
-    int namelen = d2u->entry.namelen;
-
-    /* Skip bogus entries. */
-    if (*ino == 0 || namelen == 0) {
-        xfs.dirpos++;
-        return next_dentry_dir3(ino);
-    }
-
-    /* Compute remaining size of this entry. */
-    {
-        int base = 8 + 1 + namelen + 2;
-        if (has_ftype)
-            base += 1;
-
-        int entsize = roundup8(base);
-        int toread  = entsize - 9;   /* 9 bytes already consumed */
-
-        if (toread < 0)
-            toread = 0;
-
-        if (toread && xfs_read(dirbuf, toread) != toread) {
-            printf("xfs: short read in dir3 filename\n");
+        /* Read rest of fixed header: remaining 4 bytes of inumber + namelen. */
+        if (xfs_read((char *)dirbuf + 4, 5) != 5) {
+            printf("xfs: short read in dir3 entry header\n");
             return NULL;
         }
+        xfs.blkoff += 5;
 
-        xfs.blkoff += toread;
+        *ino = le64(d2u->entry.inumber);
+        int namelen = d2u->entry.namelen;
+
+        /* Skip bogus entries. */
+        if (*ino == 0 || namelen == 0) {
+            xfs.dirpos++;
+            continue;
+        }
+
+        /* Compute remaining size of this entry. */
+        {
+            int base = 8 + 1 + namelen + 2;
+            if (has_ftype)
+                base += 1;
+
+            int entsize = roundup8(base);
+            int toread  = entsize - 9;   /* 9 bytes already consumed */
+
+            if (toread < 0)
+                toread = 0;
+
+            if (toread && xfs_read(dirbuf, toread) != toread) {
+                printf("xfs: short read in dir3 filename\n");
+                return NULL;
+            }
+
+            xfs.blkoff += toread;
+        }
+
+        /* dirbuf now starts with the filename bytes. */
+        char *name = (char *)dirbuf;
+        name[namelen] = 0;   /* overwrite filetype / padding / tag byte */
+
+        xfs.dirpos++;
+
+        return name;
     }
 
-    /* dirbuf now starts with the filename bytes. */
-    char *name = (char *)dirbuf;
-    name[namelen] = 0;   /* overwrite filetype / padding / tag byte */
-
-    xfs.dirpos++;
-
 #undef d2u
-    return name;
 }
 
 
@@ -1385,6 +1395,14 @@ next_dentry_dir2(xfs_ino_t *ino)
 
 #define dau ((xfs_dir2_data_union_t *)dirbuf)
 
+    /*
+     * One iteration per entry handed back.  A bogus entry starts the next
+     * iteration instead of recursing: a directory full of them used to
+     * recurse once per entry, and the bootloader's stack has nothing
+     * below it to catch that (see next_dentry_dir3()).
+     */
+    for (;;) {
+
     /* Loop until we find a valid (non-free) entry */
     for (;;) {
 
@@ -1465,7 +1483,7 @@ next_dentry_dir2(xfs_ino_t *ino)
     /* Skip bogus entries */
     if (*ino == 0 || namelen == 0) {
         xfs.dirpos++;
-        return next_dentry_dir2(ino);
+        continue;
     }
 
     /* --------------------------------------------------------
@@ -1485,9 +1503,11 @@ next_dentry_dir2(xfs_ino_t *ino)
     xfs.blkoff += toread + 5;
     xfs.dirpos++;
 
-#undef dau
-
     return name;
+
+    } /* outer for(;;) */
+
+#undef dau
 }
 
 /* Dispatcher for first directory entry.
