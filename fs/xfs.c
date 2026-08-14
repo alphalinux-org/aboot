@@ -84,7 +84,11 @@ static long filemax; /* filelen */
 
 static long xfs_read (void *buf, long len);
 
-#define isspace(c) ((c) == 0x10)
+/*
+ * The path handed to xfs_open() ends at a space or a NUL; the boot
+ * command line separates arguments with either a space or a tab.
+ */
+#define isspace(c) ((c) == ' ' || (c) == '\t')
 
 /*
  * Replacement for old Linux __swabXX() helpers.
