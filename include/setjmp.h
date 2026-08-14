@@ -54,12 +54,17 @@
 
 #define	JBMAGIC	0x2ceb1ade
 
-#ifndef LANGUAGE_ASSEMBLY
+/*
+ * GCC predefines LANGUAGE_ASSEMBLY on Alpha when preprocessing assembly,
+ * but that is a GCC extension that other compilers do not provide.
+ * __ASSEMBLER__ is defined by any compiler preprocessing a .S file.
+ */
+#if !defined(LANGUAGE_ASSEMBLY) && !defined(__ASSEMBLER__)
 
 typedef long	jmp_buf[JBLEN];
 
 void	_longjmp(jmp_buf, int);
 int	_setjmp(jmp_buf);
 
-#endif /* LANGUAGE_ASSEMBLY */
+#endif /* !LANGUAGE_ASSEMBLY && !__ASSEMBLER__ */
 #endif /* _setjmp_h */
