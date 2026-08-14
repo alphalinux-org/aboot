@@ -64,7 +64,6 @@ typedef        uint64_t        xfs_fileoff_t;  /* block number in a file */
 typedef        uint64_t        xfs_filblks_t;  /* number of blocks in a file */
 
 #define XFS_DIR3_DATA_MAGIC 0x58444433  /* 'XDD3' - dir3 data (v5) */
-#define XFS_DIR2_BLOCK_MAGIC 0x58444242 /* 'XDBB' - dir2 block dirs */
 #define XFS_DIR3_BLOCK_MAGIC 0x58444233 /* 'XDB3' - dir3 block dirs */
 #define XFS_DIR2_DATA_MAGIC 0x58443244  /* 'XD2D' - dir2 data (v4) */
 
@@ -288,9 +287,6 @@ typedef        xfs_off_t               xfs_dir2_off_t;
  * Is is used to manage a doubly linked list of all blocks at the same
  * level in the Btree, and to identify which type of block this is.
  */
-#define        XFS_DIR2_LEAF1_MAGIC    0xd2f1  /* magic number: v2 dirlf single blks */
-#define        XFS_DIR2_LEAFN_MAGIC    0xd2ff  /* magic number: v2 dirlf multi blks */
-
 typedef struct xfs_da_blkinfo {
        xfs_dablk_t forw;                       /* previous block in list */
        xfs_dablk_t back;                       /* following block in list */
