@@ -1718,9 +1718,10 @@ static int xfs_open(const char *dirname)
        xfs_fsize_t di_size;
        int di_mode;
        int cmp, n, link_count;
-       char linkbuf[xfs.bsize];
+       static char linkbuf[MAXNAMELEN];
        char *rest, *name, ch;
        char namebuf[MAXNAMELEN];
+       char restbuf[MAXNAMELEN];
        char *filename = namebuf;
 
        if (strlen(dirname) >= MAXNAMELEN) {
@@ -1750,7 +1751,17 @@ static int xfs_open(const char *dirname)
                                printf("XFS error: symlink loop!\n");
                                return -1;
                        }
-                       if (di_size < xfs.bsize - 1) {
+                       /*
+                        * filename may already point into linkbuf (a
+                        * chained symlink), so the remaining path has to be
+                        * saved off before xfs_read() overwrites linkbuf
+                        * with the new target -- otherwise the append below
+                        * copies clobbered bytes instead of the real
+                        * remaining path.
+                        */
+                       strcpy(restbuf, filename);
+
+                       if (di_size < (xfs_fsize_t)(sizeof(linkbuf) - 1)) {
                                filepos = 0;
                                filemax = di_size;
                                n = xfs_read (linkbuf, filemax);
@@ -1760,7 +1771,9 @@ static int xfs_open(const char *dirname)
                        }
 
                        ino = (linkbuf[0] == '/') ? xfs.rootino : parent_ino;
-                       while (n < (xfs.bsize - 1) && (linkbuf[n++] = *filename++));
+                       filename = restbuf;
+                       while (n < (int)(sizeof(linkbuf) - 1)
+                              && (linkbuf[n++] = *filename++));
                        linkbuf[n] = 0;
                        filename = linkbuf;
                        continue;
