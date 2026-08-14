@@ -128,4 +128,7 @@ struct ext4_extent_header {
 
 #define EXT4_EXT_MAGIC	0xf30a
 
+/* An ee_len above this marks the extent uninitialized. */
+#define EXT_INIT_MAX_LEN	32768
+
 #endif

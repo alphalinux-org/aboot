@@ -557,11 +557,27 @@ static int ext4_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buff
             uint32_t first = e->ee_block;
             uint32_t len   = e->ee_len;
 
+            /*
+             * ee_len above EXT_INIT_MAX_LEN marks an uninitialized
+             * extent: the blocks are allocated but hold no data yet,
+             * and the real length is ee_len - EXT_INIT_MAX_LEN.  Such
+             * an extent still covers its share of the logical block
+             * space, so take its real length into account here and
+             * refuse it only if the block we want falls inside it.
+             */
+            if (len > EXT_INIT_MAX_LEN)
+                len -= EXT_INIT_MAX_LEN;
+
             if (len == 0)
                 continue;
 
             if ((uint32_t)cur_blk >= first &&
                 (uint32_t)cur_blk < first + len) {
+                if (e->ee_len > EXT_INIT_MAX_LEN) {
+                    printf("ext4_breadi: uninitialized extent at"
+                           " block %u.\n", first);
+                    return -1;
+                }
                 ext = e;
                 break;
             }
