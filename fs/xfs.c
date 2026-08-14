@@ -248,17 +248,28 @@ typedef struct xfs_dir3_data_hdr {
     uint32_t             pad;                          /* 64-byte alignment */
 } xfs_dir3_data_hdr_t;
 
-#ifdef __alpha__ /* take care of alignment*/
- static long FSYS_BUF[32768/sizeof(long)];
- #define dirbuf                ((long *)FSYS_BUF)
- #define filebuf       ((long *)FSYS_BUF + 4096/sizeof(long))
- #define inode         ((xfs_dinode_t *)((long *)FSYS_BUF + 8192/sizeof(long)))
-#else
- static char FSYS_BUF[32768];
- #define dirbuf                ((char *)FSYS_BUF)
- #define filebuf       ((char *)FSYS_BUF + 4096)
- #define inode         ((xfs_dinode_t *)((char *)FSYS_BUF + 8192))
-#endif
+/*
+ * Scratch space, carved into three regions.  The union gives it the
+ * alignment of the widest type we lay over it; addressing it as char
+ * keeps the pointer arithmetic below from depending on sizeof(long).
+ */
+#define FSYS_BUF_SIZE     32768
+#define DIRBUF_OFFSET     0
+#define FILEBUF_OFFSET    4096
+#define INODE_OFFSET      8192
+
+static union {
+       long align;
+       char b[FSYS_BUF_SIZE];
+} FSYS_BUF;
+
+#define DIRBUF_SIZE    (FILEBUF_OFFSET - DIRBUF_OFFSET)
+#define FILEBUF_SIZE   (INODE_OFFSET - FILEBUF_OFFSET)
+#define INODE_SIZE     (FSYS_BUF_SIZE - INODE_OFFSET)
+
+#define dirbuf         (FSYS_BUF.b + DIRBUF_OFFSET)
+#define filebuf        (FSYS_BUF.b + FILEBUF_OFFSET)
+#define inode          ((xfs_dinode_t *)(FSYS_BUF.b + INODE_OFFSET))
 
 #define icore          (inode->di_core)
 #define        mask32lo(n)     (((uint32_t)1 << (n)) - 1)
