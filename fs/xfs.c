@@ -190,6 +190,7 @@ struct xfs_info {
        xfs_ino_t new_ino;
        int is_v5;
        int has_ftype;
+       int has_nrext64;
        char* data_fork;
 };
 
@@ -657,35 +658,23 @@ init_extents (void)
     		//xfs.nextents = be32_to_cpu(icore.di_nextents);
 		xfs_dinode_disk_t *dip = (xfs_dinode_disk_t *)inode;
 
-		/* This is what older XFS used for data extents (still correct
-		 * on non-NREXT64 filesystems and v1/v2 inodes).
-		*/
-		uint32_t ne32 = be32_to_cpu(icore.di_nextents);
-
-		/* On v5 filesystems with NREXT64, the 8 bytes where older
-		 * layouts had (di_pad[6] + di_flushiter) are now a union that
-		 * may contain di_big_nextents (64-bit data extent count).
-		 *
-		 * Our xfs_dinode_disk_t still has di_pad[6] + di_flushiter,
-		 * but that's exactly the same 8-byte region, so we can just
-		 * reinterpret it as a BE64 big extent counter.
-		 */
-		uint64_t be_big = 0;
-		memcpy(&be_big, dip->di_pad, sizeof(be_big)); /* di_pad[0..5] + di_flushiter */
-		uint64_t big = be64_to_cpu(be_big);
-
 		uint32_t ne;
-		if (big != 0) {
-			/* NREXT64 case: di_big_nextents is valid and non-zero.
-			 * We only need 32 bits in the bootloader; directories on
-			 * a boot partition won't have anywhere near 2^32 extents.
-			 */
-			ne = (uint32_t)big;
 
+		if (xfs.has_nrext64) {
+			/* The 8 bytes that hold di_pad[6] and di_flushiter on
+			 * every other layout are di_big_nextents, a 64-bit
+			 * data extent count, when NREXT64 is set.  32 bits is
+			 * plenty here: nothing on a boot partition comes near
+			 * 2^32 extents.
+			 */
+			uint64_t be_big = 0;
+
+			memcpy(&be_big, dip->di_pad, sizeof(be_big));
+			ne = (uint32_t) be64_to_cpu(be_big);
 		} else {
-			 /* Legacy case: use 32-bit di_nextents */
-			ne = ne32;
+			ne = be32_to_cpu(icore.di_nextents);
 		}
+
 		xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
 		xfs.nextents = ne;
                break;
@@ -1712,6 +1701,15 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
        else
                xfs.has_ftype = (be32_to_cpu(super.sb_features2)
                                 & XFS_SB_VERSION2_FTYPE) != 0;
+
+       /*
+        * Likewise for the 64-bit extent counts: di_big_nextents only
+        * exists where the filesystem says so.  Everywhere else those
+        * bytes are di_pad[6] and di_flushiter.
+        */
+       xfs.has_nrext64 = xfs.is_v5
+               && (be32_to_cpu(super.sb_features_incompat)
+                   & XFS_SB_FEAT_INCOMPAT_NREXT64) != 0;
 
        xfs.bsize = be32_to_cpu(super.sb_blocksize);
        xfs.blklog = super.sb_blocklog;

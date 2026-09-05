@@ -169,6 +169,7 @@ typedef struct xfs_sb
 
 /* sb_features_incompat, on a v5 filesystem */
 #define XFS_SB_FEAT_INCOMPAT_FTYPE     0x00000001
+#define XFS_SB_FEAT_INCOMPAT_NREXT64   0x00000020
 
 
 /* those are from xfs_btree.h */
