@@ -47,19 +47,6 @@ static char *next_dentry_local(xfs_ino_t *);
 static xfs_ino_t xfs_dir2_sf_get_ino(xfs_dir2_sf_hdr_t *, xfs_dir2_inou_t *);
 
 
-typedef struct {
-    uint32_t inumber_lo;
-    uint32_t inumber_hi;
-    uint8_t  namelen;
-    uint8_t  filetype;
-    uint8_t  name[];     /* variable length */
-} xfs_dir3_data_entry_t;
-
-typedef union {
-    xfs_dir3_data_entry_t entry;
-    xfs_dir2_data_unused_t unused;
-} xfs_dir3_data_union_t;
-
 struct bootfs xfsfs = {
        FS_EXT2,
        0,
@@ -70,12 +57,6 @@ struct bootfs xfsfs = {
        xfs_readdir,
        xfs_fstat
 };
-
-typedef struct {
-    uint8_t namelen;
-    uint8_t offset;
-    char name[1];   /* name bytes follow */
-} xfs_dir3_sf_entry_t;
 
 static long dev = -1;
 static long partition_offset;
@@ -181,7 +162,6 @@ struct xfs_info {
        xfs_bmbt_rec_32_t *xt;
        xfs_bmbt_ptr_t ptr0;
        int btnode_ptr0_off;
-       int i8param;
        int dirpos;
        int dirmax;
        int blkoff;
@@ -192,7 +172,6 @@ struct xfs_info {
        int has_ftype;
        int has_nrext64;
        int dir3_has_tail;
-       char* data_fork;
 };
 
 
@@ -324,13 +303,6 @@ static inline xfs_dir2_sf_t *
 xfs_sf_dir(void)
 {
     return (xfs_dir2_sf_t *)xfs_dfork_dptr();
-}
-
-/* Does a shortform entry carry the file type byte? */
-static inline int
-xfs_sf_is_dir3(void)
-{
-    return xfs.has_ftype;
 }
 
 
@@ -494,24 +466,6 @@ btroot_maxrecs (void)
                (sizeof (xfs_bmbt_key_t) + sizeof (xfs_bmbt_ptr_t));
 }
 
-
-/* Offsets of the data fork (literal area) in bytes.
- * From XFS on-disk format documentation:
- *   - v2 inode: 0x64 (100)
- *   - v3 inode: 0xB0 (176)
- */
-#define XFS_DINODE_DFORK_V2_OFF   100
-#define XFS_DINODE_DFORK_V3_OFF   176
-
-static inline char *
-xfs_dinode_data_fork(void)
-{
-    /* icore.di_version is already byte-swapped in the inode core */
-    if (icore.di_version >= 3)
-        return (char *)inode + XFS_DINODE_DFORK_V3_OFF;
-    else
-        return (char *)inode + XFS_DINODE_DFORK_V2_OFF;
-}
 
 /* Read inode from disk (v4/v5 compatible) */
 
@@ -998,9 +952,6 @@ first_dentry_local(xfs_ino_t *ino)
 #ifdef DEBUG_XFS
     printf("sf->hdr.count=%d\n",xfs.dirmax);
 #endif
-    /* Keep i8param for old helpers, though we no longer rely on it here. */
-    xfs.i8param = hdr->i8count ? 0 : 4;
-
     /*
      * dirpos:
      *   -2 = "."
@@ -1117,22 +1068,6 @@ xfs_sf_entsize(xfs_dir2_sf_hdr_t *hdr, int namelen)
     return xfs.has_ftype ? xfs_dir3_sf_entsize(hdr, namelen)
                          : xfs_dir2_sf_entsize(hdr, namelen);
 }
-/* Get parent inode from shortform header */
-static inline xfs_ino_t
-sf_parent_ino_sf(void)
-{
-    xfs_dir2_sf_t     *sf  = xfs_sf_dir();
-    xfs_dir2_sf_hdr_t *hdr = &sf->hdr;
-    uint8_t           *p   = (uint8_t *)&hdr->parent;
-
-    if (hdr->i8count)
-        return (xfs_ino_t)be64_to_cpu(*(xfs_ino_t *)p);
-    else
-        return (xfs_ino_t)be32_to_cpu(*(uint32_t *)p);
-}
-
-
-
 /* Decode an xfs_dir2_inou_t -> xfs_ino_t (v4/v5) */
 static inline xfs_ino_t
 xfs_dir2_sf_get_ino(xfs_dir2_sf_hdr_t *hdr, xfs_dir2_inou_t *from)
@@ -1364,22 +1299,6 @@ first_dentry_dir2(xfs_ino_t *ino)
     printf("first_dentry_dir2(): starting (di_format=%d)\n",
            icore.di_format);
 #endif
-
-    /* ----------------------------------------------------------
-     * SHORTFORM (small) directory
-     * ---------------------------------------------------------- */
-    if (icore.di_format == XFS_DINODE_FMT_LOCAL)
-    {
-        xfs.dirmax  = inode->di_u.di_dir2sf.hdr.count;
-        xfs.i8param = inode->di_u.di_dir2sf.hdr.i8count ? 0 : 4;
-        xfs.dirpos  = -2;   /* ".", "..", then real entries */
-
-#ifdef DEBUG_XFS_2
-        printf("DIR2 shortform: dirmax=%d i8param=%d\n",
-               xfs.dirmax, xfs.i8param);
-#endif
-        return next_dentry_dir2(ino);
-    }
 
     /* ----------------------------------------------------------
      * EXTENTS or BTREE directory
