@@ -2111,7 +2111,10 @@ xfs_fstat(int fd, struct stat* buf)
        memset(buf, 0, sizeof(struct stat));
        buf->st_mode   = be16_to_cpu(icore.di_mode);
        //buf->st_flags  = be16_to_cpu(icore.di_flags);
-       buf->st_nlink  = be16_to_cpu(icore.di_onlink);
+       /* v1 inodes keep the link count in di_onlink; v2 and v3 in di_nlink. */
+       buf->st_nlink  = (icore.di_version == 1)
+                        ? be16_to_cpu(icore.di_onlink)
+                        : be32_to_cpu(icore.di_nlink);
        buf->st_uid    = be32_to_cpu(icore.di_uid);
        buf->st_gid    = be32_to_cpu(icore.di_gid);
        buf->st_size   = be64_to_cpu(icore.di_size);
