@@ -191,6 +191,7 @@ struct xfs_info {
        int is_v5;
        int has_ftype;
        int has_nrext64;
+       int dir3_has_tail;
        char* data_fork;
 };
 
@@ -798,12 +799,22 @@ xfs_count_dir3_entries(void)
         return 0;
     }
 
+    /*
+     * Only a block-format directory carries a tail; a data block of a
+     * multi-block directory has file data all the way to the end, so
+     * looking for a leaf count there reads whatever happens to be in
+     * the last twelve bytes.
+     */
+    xfs.dir3_has_tail = (magic == XFS_DIR3_BLOCK_MAGIC);
+
     /* Skip v5 data header */
     filepos    = sizeof(xfs_dir3_data_hdr_t);
     xfs.blkoff = filepos;
 
-    /* --- Find block tail to know where the leaf area starts --- */
-    {
+    if (!xfs.dir3_has_tail) {
+        data_end = xfs.dirbsize;
+    } else {
+        /* --- Find block tail to know where the leaf area starts --- */
         long saved_pos  = filepos;
         long saved_off  = xfs.blkoff;
 
@@ -1218,13 +1229,21 @@ next_dentry_dir3(xfs_ino_t *ino)
                     return NULL;
                 }
 
+                xfs.dir3_has_tail = (magic == XFS_DIR3_BLOCK_MAGIC);
+
                 /* Skip full v5 header. */
                 xfs.blkoff = sizeof(xfs_dir3_data_hdr_t);
                 filepos   |= xfs.blkoff;
             }
 
-            /* Stop when we reach the tail (v5 tail, 12 bytes, not the v4 8-byte one) */
-            if (xfs.blkoff + sizeof(xfs_dir3_block_tail_t) >= xfs.dirbsize)
+            /*
+             * Stop at the tail of a block-format directory (the v5 tail,
+             * 12 bytes, not the v4 8-byte one).  A data block has no
+             * tail, and its entries run to the end of the block.
+             */
+            if (xfs.dir3_has_tail
+                && xfs.blkoff + (int) sizeof(xfs_dir3_block_tail_t)
+                   >= xfs.dirbsize)
                 return NULL;
 
             /* Read first 4 bytes of the next slot */
