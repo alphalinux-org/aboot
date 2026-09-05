@@ -534,7 +534,11 @@ di_read (xfs_ino_t ino)
     daddr  = agb2daddr (agno, agbno);
 
     /* Read the raw inode into FSYS_BUF-backed "inode" */
-    devread (daddr, offset * xfs.isize, xfs.isize, (char *)inode);
+    if (devread (daddr, offset * xfs.isize, xfs.isize, (char *)inode)
+        != xfs.isize) {
+        printf("XFS: read error for ino %lu\n", (unsigned long long) ino);
+        return 0;
+    }
 
 #ifdef DEBUG_XFS_2
     printf("di_read(): ino=%lu agno=%u agino=%u offset=%d isize=%d\n",
@@ -681,18 +685,27 @@ init_extents (void)
                break;
        case XFS_DINODE_FMT_BTREE:
                ptr0 = xfs.ptr0;
+               xfs.nextents = 0;
+               xfs.next = 0;
                for (;;) {
                        xfs.daddr = fsb2daddr (be64_to_cpu(ptr0));
-                       devread (xfs.daddr, 0,
-                                sizeof(xfs_btree_lblock_t), (char *)&h);
+                       if (devread (xfs.daddr, 0, sizeof(xfs_btree_lblock_t),
+                                    (char *)&h) != sizeof(h)) {
+                               printf("xfs: read error in bmap btree\n");
+                               return;
+                       }
                        if (!h.bb_level) {
                                xfs.nextents = be16_to_cpu(h.bb_numrecs);
                                xfs.next = fsb2daddr (be64_to_cpu(h.bb_rightsib));
                                xfs.fpos = sizeof(xfs_btree_block_t);
                                return;
                        }
-                       devread (xfs.daddr, xfs.btnode_ptr0_off,
-                                sizeof(xfs_bmbt_ptr_t), (char *)&ptr0);
+                       if (devread (xfs.daddr, xfs.btnode_ptr0_off,
+                                    sizeof(xfs_bmbt_ptr_t), (char *)&ptr0)
+                           != sizeof(ptr0)) {
+                               printf("xfs: read error in bmap btree\n");
+                               return;
+                       }
                }
        }
 }
@@ -713,13 +726,21 @@ next_extent (void)
                        if (xfs.next == 0)
                                return NULL;
                        xfs.daddr = xfs.next;
-                       devread (xfs.daddr, 0, sizeof(xfs_btree_lblock_t), (char *)&h);
+                       if (devread (xfs.daddr, 0, sizeof(xfs_btree_lblock_t),
+                                    (char *)&h) != sizeof(h)) {
+                               printf("xfs: read error in bmap btree\n");
+                               return NULL;
+                       }
                        xfs.nextents = be16_to_cpu(h.bb_numrecs);
                        xfs.next = fsb2daddr (be64_to_cpu(h.bb_rightsib));
                        xfs.fpos = sizeof(xfs_btree_block_t);
                }
                /* Yeah, I know that's slow, but I really don't care */
-               devread (xfs.daddr, xfs.fpos, sizeof(xfs_bmbt_rec_t), filebuf);
+               if (devread (xfs.daddr, xfs.fpos, sizeof(xfs_bmbt_rec_t),
+                            filebuf) != sizeof(xfs_bmbt_rec_t)) {
+                       printf("xfs: read error in bmap btree\n");
+                       return NULL;
+               }
                xfs.xt = (xfs_bmbt_rec_32_t *)filebuf;
                xfs.fpos += sizeof(xfs_bmbt_rec_32_t);
        }
@@ -745,8 +766,12 @@ xfs_dabread (void)
        while ((xad = next_extent ())) {
                offset = xad->offset;
                if (isinxt (xfs.dablk, offset, xad->len)) {
-                       devread (fsb2daddr (xad->start + xfs.dablk - offset),
-                                0, 100, dirbuf);
+                       if (devread (fsb2daddr (xad->start + xfs.dablk - offset),
+                                    0, 100, dirbuf) != 100) {
+                               printf("xfs: read error in dir block %u\n",
+                                      xfs.dablk);
+                               return -1;
+                       }
                        return 0;
                }
        }
@@ -1823,8 +1848,13 @@ xfs_read (void *buf, long len)
                        endofcur = (offset + xadlen) << xfs.blklog; 
                        toread = (endofcur >= endpos)
                                  ? len : (endofcur - filepos);
-                       devread (fsb2daddr (xad->start),
-                                filepos - (offset << xfs.blklog), toread, buf);
+                       if (devread (fsb2daddr (xad->start),
+                                    filepos - (offset << xfs.blklog),
+                                    toread, buf) != toread) {
+                               printf("xfs: read error at file offset %ld\n",
+                                      filepos);
+                               break;
+                       }
                        buf += toread;
                        len -= toread;
                        filepos += toread;
