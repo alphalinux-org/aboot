@@ -1527,6 +1527,7 @@ next_dentry_dir2(xfs_ino_t *ino)
         printf("xfs: short read in dir2 entry header\n");
         return NULL;
     }
+    xfs.blkoff += 5;
 
     *ino    = be64_to_cpu(dau->entry.inumber);
     namelen = dau->entry.namelen;
@@ -1551,7 +1552,7 @@ next_dentry_dir2(xfs_ino_t *ino)
     name[namelen] = 0;
 
     /* Advance */
-    xfs.blkoff += toread + 5;
+    xfs.blkoff += toread;
     xfs.dirpos++;
 
     return name;
