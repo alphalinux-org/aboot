@@ -195,6 +195,28 @@ static void ext2_iput(struct ext2_inode *ip)
 
 
 /*
+ * Read indirect block BLKNO into BUF, unless *CACHED already holds it.
+ * Returns 0 on success, -1 on read failure.
+ */
+static int ext2_read_indirect(int blkno, int *cached, char *buf, const char *what)
+{
+	unsigned long offset;
+
+	if (*cached == blkno) {
+		return 0;
+	}
+
+	offset = partition_offset + (long) blkno * (long) ext2fs.blocksize;
+	if (cons_read(dev, buf, ext2fs.blocksize, offset) != ext2fs.blocksize) {
+		printf("ext2_blkno: err reading %s blk\n", what);
+		return -1;
+	}
+
+	*cached = blkno;
+	return 0;
+}
+
+/*
  * Map a block offset into a file into an absolute block number.
  * (traverse the indirect blocks if necessary).  Note: Double-indirect
  * blocks allow us to map over 64Mb on a 1k file system.  Therefore, for
@@ -210,7 +232,6 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 	int blkno;
 	int iblkno;
 	int diblkno;
-	unsigned long offset;
 
 	ilp = (unsigned int *)iblkbuf;
 	dlp = (unsigned int *)diblkbuf;
@@ -229,15 +250,8 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 		}
 
 		/* Read the indirect block */
-		if (cached_iblkno != iblkno) {
-			offset = partition_offset + (long)iblkno * (long)ext2fs.blocksize;
-			if (cons_read(dev, iblkbuf, ext2fs.blocksize, offset)
-			    != ext2fs.blocksize)
-			{
-				printf("ext2_blkno: error on iblk read\n");
-				return 0;
-			}
-			cached_iblkno = iblkno;
+		if (ext2_read_indirect(iblkno, &cached_iblkno, iblkbuf, "iblk") < 0) {
+			return 0;
 		}
 
 		blkno = ilp[blkoff-(directlim+1)];
@@ -254,15 +268,8 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 		}
 
 		/* Read in the double-indirect block */
-		if (cached_diblkno != diblkno) {
-			offset = partition_offset + (long) diblkno * (long) ext2fs.blocksize;
-			if (cons_read(dev, diblkbuf, ext2fs.blocksize, offset)
-			    != ext2fs.blocksize)
-			{
-				printf("ext2_blkno: err reading dindr blk\n");
-				return 0;
-			}
-			cached_diblkno = diblkno;
+		if (ext2_read_indirect(diblkno, &cached_diblkno, diblkbuf, "dindr") < 0) {
+			return 0;
 		}
 
 		/* Find the single-indirect block pointer ... */
@@ -273,16 +280,8 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 		}
 
 		/* Read the indirect block */
-
-		if (cached_iblkno != iblkno) {
-			offset = partition_offset + (long) iblkno * (long) ext2fs.blocksize;
-			if (cons_read(dev, iblkbuf, ext2fs.blocksize, offset)
-			    != ext2fs.blocksize)
-			{
-				printf("ext2_blkno: err on iblk read\n");
-				return 0;
-			}
-			cached_iblkno = iblkno;
+		if (ext2_read_indirect(iblkno, &cached_iblkno, iblkbuf, "iblk") < 0) {
+			return 0;
 		}
 
 		/* Find the block itself. */
