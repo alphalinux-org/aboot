@@ -94,21 +94,13 @@ static int ext4_check_features(int quiet)
         if (!quiet) {
             printf("ext2/4: unsupported INCOMPAT features: 0x%08x", missing);
 
-            if (missing & EXT4_FEATURE_INCOMPAT_64BIT)
-                printf(" (64bit)");
             if (missing & EXT4_FEATURE_INCOMPAT_META_BG)
                 printf(" (meta_bg)");
-            if (missing & EXT4_FEATURE_INCOMPAT_FLEX_BG)
-                printf(" (flex_bg)");
-            if (missing & EXT4_FEATURE_INCOMPAT_MMP)
-                printf(" (mmp)");
-	    if (missing & EXT4_FEATURE_INCOMPAT_CSUM_SEED)
-		printf(" (csum_seed)");
             /* add more decodes here as you implement them */
 
             printf("\n");
             printf("        Use an ext2/3/4 filesystem without these features\n");
-            printf("        (for example: tune2fs -O ^64bit,^metadata_csum /dev/XXX\n");
+            printf("        (for example: tune2fs -O ^meta_bg /dev/XXX\n");
             printf("         or create a small ext2/ext3 /boot partition).\n");
         }
         return -1;
@@ -117,16 +109,14 @@ static int ext4_check_features(int quiet)
     /*
      * Now check RO-compat features.
      * In a read-only loader, unknown RO-compat features are theoretically
-     * safe, but some (e.g. metadata_csum) *do* affect on-disk layout, so
-     * we still reject unknown ones for now.
+     * safe, but some do affect the on-disk layout, so reject unknown ones
+     * rather than guess.
      */
     missing = ro_compat & ~EXT4_FEATURE_RO_COMPAT_SUPP;
     if (missing) {
         if (!quiet) {
             printf("ext2/4: unsupported RO_COMPAT features: 0x%08x", missing);
 
-            if (missing & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)
-                printf(" (metadata_csum)");
             if (missing & EXT4_FEATURE_RO_COMPAT_BIGALLOC)
                 printf(" (bigalloc)");
             if (missing & EXT4_FEATURE_RO_COMPAT_QUOTA)
