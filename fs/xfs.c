@@ -554,27 +554,28 @@ di_read (xfs_ino_t ino)
      *
      * xfs.ptr0 is only valid / needed if di_format == BTREE.
      */
-	if (inode->di_core.di_format == XFS_DINODE_FMT_BTREE) {
-    		char *dfork = xfs_dfork_dptr(); /* start of data fork (v2/v3 aware) */
-    		int maxrecs = btroot_maxrecs();
+    if (inode->di_core.di_format == XFS_DINODE_FMT_BTREE) {
+        char *dfork = xfs_dfork_dptr(); /* start of data fork (v2/v3 aware) */
+        int maxrecs = btroot_maxrecs();
 
-    		if (maxrecs < 0) {
-    			printf("XFS: bad btree root for ino %lu\n",
-    			       (unsigned long long) ino);
-    			return 0;
-    		}
+        if (maxrecs < 0) {
+            printf("XFS: bad btree root for ino %lu\n",
+                   (unsigned long long) ino);
+            return 0;
+        }
 
-    		xfs.ptr0 = *(xfs_bmbt_ptr_t *)(dfork +
-                 sizeof(xfs_bmdr_block_t) +
-                 maxrecs * sizeof(xfs_bmbt_key_t));
+        xfs.ptr0 = *(xfs_bmbt_ptr_t *)(dfork +
+                                       sizeof(xfs_bmdr_block_t) +
+                                       maxrecs * sizeof(xfs_bmbt_key_t));
 #ifdef DEBUG_XFS
-	   printf("di_read(): ino=%lu di_version=%u di_format=%u di_size=%lu di_nextents=%u is_v5=%d\n",
-	   (unsigned long long)ino,
-           inode->di_core.di_version,
-           inode->di_core.di_format,
-           (unsigned long long)be64_to_cpu(inode->di_core.di_size),
-           be32_to_cpu(inode->di_core.di_nextents),
-           xfs.is_v5);
+        printf("di_read(): ino=%lu di_version=%u di_format=%u di_size=%lu"
+               " di_nextents=%u is_v5=%d\n",
+               (unsigned long long) ino,
+               inode->di_core.di_version,
+               inode->di_core.di_format,
+               (unsigned long long) be64_to_cpu(inode->di_core.di_size),
+               be32_to_cpu(inode->di_core.di_nextents),
+               xfs.is_v5);
 #endif
     }
 
@@ -612,31 +613,31 @@ init_extents (void)
 
        switch (icore.di_format) {
        case XFS_DINODE_FMT_EXTENTS:
-	        /* Extent records start at the beginning of the data fork */
-    		//xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
-    		//xfs.nextents = be32_to_cpu(icore.di_nextents);
-		xfs_dinode_disk_t *dip = (xfs_dinode_disk_t *)inode;
+       {
+               /* Extent records start at the beginning of the data fork */
+               xfs_dinode_disk_t *dip = (xfs_dinode_disk_t *)inode;
+               uint32_t ne;
 
-		uint32_t ne;
+               if (xfs.has_nrext64) {
+                       /*
+                        * The 8 bytes that hold di_pad[6] and di_flushiter
+                        * on every other layout are di_big_nextents, a
+                        * 64-bit data extent count, when NREXT64 is set.
+                        * 32 bits is plenty here: nothing on a boot
+                        * partition comes near 2^32 extents.
+                        */
+                       uint64_t be_big = 0;
 
-		if (xfs.has_nrext64) {
-			/* The 8 bytes that hold di_pad[6] and di_flushiter on
-			 * every other layout are di_big_nextents, a 64-bit
-			 * data extent count, when NREXT64 is set.  32 bits is
-			 * plenty here: nothing on a boot partition comes near
-			 * 2^32 extents.
-			 */
-			uint64_t be_big = 0;
+                       memcpy(&be_big, dip->di_pad, sizeof(be_big));
+                       ne = (uint32_t) be64_to_cpu(be_big);
+               } else {
+                       ne = be32_to_cpu(icore.di_nextents);
+               }
 
-			memcpy(&be_big, dip->di_pad, sizeof(be_big));
-			ne = (uint32_t) be64_to_cpu(be_big);
-		} else {
-			ne = be32_to_cpu(icore.di_nextents);
-		}
-
-		xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
-		xfs.nextents = ne;
+               xfs.xt = (xfs_bmbt_rec_32_t *)xfs_dfork_dptr();
+               xfs.nextents = ne;
                break;
+       }
        case XFS_DINODE_FMT_BTREE:
                ptr0 = xfs.ptr0;
                xfs.nextents = 0;
@@ -885,9 +886,8 @@ xfs_count_dir3_entries(void)
 static char *
 next_dentry(xfs_ino_t *ino)
 {
-   
-#ifdef DEBUG_XFS       
-	printf("next_dentry(): di_format=%d dirpos=%d dirmax=%d is_v5=%d\n",
+#ifdef DEBUG_XFS
+    printf("next_dentry(): di_format=%d dirpos=%d dirmax=%d is_v5=%d\n",
            icore.di_format, xfs.dirpos, xfs.dirmax, xfs.is_v5);
 #endif
     /* Generic end-of-directory handling */
@@ -972,7 +972,6 @@ first_dentry_local(xfs_ino_t *ino)
 
     return next_dentry_local(ino);
 }
-	
 
 static inline char *
 xfs_sf_name(xfs_dir2_sf_entry_t *sfe)
@@ -1631,25 +1630,24 @@ xfs_mount(long bdev, long p_offset, long quiet)
                               be32_to_cpu(super.sb_magicnum));
                return -1;
        } else {
-        unsigned int ver = be16_to_cpu(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS;
+               unsigned int ver = be16_to_cpu(super.sb_versionnum)
+                                  & XFS_SB_VERSION_NUMBITS;
 
-    	/* Accept XFS v4 and v5 */
-    if (ver == XFS_SB_VERSION_5) {
+               /* Accept XFS v4 and v5 */
+               if (ver == XFS_SB_VERSION_5) {
 #ifdef DEBUG_XFS
-        printf("xfs_mount: Detected XFS v5 filesystem (CRC-enabled)\n");
+                       printf("xfs_mount: Detected XFS v5 filesystem"
+                              " (CRC-enabled)\n");
 #endif
-        xfs.is_v5 = 1;       /* new flag */
-    }
-    else if (ver == XFS_SB_VERSION_4) {
-        xfs.is_v5 = 0;
-    }
-    else {
-        if (!quiet)
-            printf("xfs_mount: unsupported XFS version %u\n", ver);
-        return -1;
-    }
-
- 
+                       xfs.is_v5 = 1;
+               } else if (ver == XFS_SB_VERSION_4) {
+                       xfs.is_v5 = 0;
+               } else {
+                       if (!quiet)
+                               printf("xfs_mount: unsupported XFS"
+                                      " version %u\n", ver);
+                       return -1;
+               }
        }
 
        /*
@@ -2010,7 +2008,7 @@ xfs_readdir(int fd, int rewind)
 #ifdef DEBUG_XFS
                printf("xfs_readdir(): calling first_dentry()\n");
 #endif
-       		return first_dentry (&xfs.new_ino);
+               return first_dentry (&xfs.new_ino);
        }
 #ifdef DEBUG_XFS
        printf("xfs_readdir(): calling next_dentry()\n");
