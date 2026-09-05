@@ -16,6 +16,7 @@
 #include "utils.h"
 #include <string.h>
 #include <stdint.h>
+
 #define MAX_OPEN_FILES		5
 
 /*
@@ -46,6 +47,7 @@
      EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE   | \
      EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)
 #endif
+
 extern struct bootfs ext2fs;
 
 static struct ext2_super_block sb;
@@ -79,64 +81,70 @@ static struct inode_table_entry {
 
 static int ext4_check_features(int quiet)
 {
-    /* sb is the global ext2_super_block already filled in by ext2_mount() */
+	/* sb is the global ext2_super_block already filled in by ext2_mount() */
 #ifdef DEBUG_EXT2
-    uint32_t compat = sb.s_feature_compat;
-    printf("ext2/4: FS compat features: 0x%08x\n", compat);
+	uint32_t compat = sb.s_feature_compat;
+	printf("ext2/4: FS compat features: 0x%08x\n", compat);
 #endif
-    uint32_t ro_compat = sb.s_feature_ro_compat;
-    uint32_t incompat  = sb.s_feature_incompat;
-    uint32_t missing;
+	uint32_t ro_compat = sb.s_feature_ro_compat;
+	uint32_t incompat  = sb.s_feature_incompat;
+	uint32_t missing;
 
-    /* First check incompatible features: these must all be understood */
-    missing = incompat & ~EXT4_FEATURE_INCOMPAT_SUPP;
-    if (missing) {
-        if (!quiet) {
-            printf("ext2/4: unsupported INCOMPAT features: 0x%08x", missing);
+	/* First check incompatible features: these must all be understood */
+	missing = incompat & ~EXT4_FEATURE_INCOMPAT_SUPP;
+	if (missing) {
+		if (!quiet) {
+			printf("ext2/4: unsupported INCOMPAT features: 0x%08x",
+			       missing);
 
-            if (missing & EXT4_FEATURE_INCOMPAT_META_BG)
-                printf(" (meta_bg)");
-            /* add more decodes here as you implement them */
+			if (missing & EXT4_FEATURE_INCOMPAT_META_BG)
+				printf(" (meta_bg)");
+			/* add more decodes here as you implement them */
 
-            printf("\n");
-            printf("        Use an ext2/3/4 filesystem without these features\n");
-            printf("        (for example: tune2fs -O ^meta_bg /dev/XXX\n");
-            printf("         or create a small ext2/ext3 /boot partition).\n");
-        }
-        return -1;
-    }
+			printf("\n");
+			printf("        Use an ext2/3/4 filesystem without"
+			       " these features\n");
+			printf("        (for example: tune2fs -O ^meta_bg"
+			       " /dev/XXX\n");
+			printf("         or create a small ext2/ext3 /boot"
+			       " partition).\n");
+		}
+		return -1;
+	}
 
-    /*
-     * Now check RO-compat features.
-     * In a read-only loader, unknown RO-compat features are theoretically
-     * safe, but some do affect the on-disk layout, so reject unknown ones
-     * rather than guess.
-     */
-    missing = ro_compat & ~EXT4_FEATURE_RO_COMPAT_SUPP;
-    if (missing) {
-        if (!quiet) {
-            printf("ext2/4: unsupported RO_COMPAT features: 0x%08x", missing);
+	/*
+	 * Now check RO-compat features.
+	 * In a read-only loader, unknown RO-compat features are theoretically
+	 * safe, but some do affect the on-disk layout, so reject unknown ones
+	 * rather than guess.
+	 */
+	missing = ro_compat & ~EXT4_FEATURE_RO_COMPAT_SUPP;
+	if (missing) {
+		if (!quiet) {
+			printf("ext2/4: unsupported RO_COMPAT features: 0x%08x",
+			       missing);
 
-            if (missing & EXT4_FEATURE_RO_COMPAT_BIGALLOC)
-                printf(" (bigalloc)");
-            if (missing & EXT4_FEATURE_RO_COMPAT_QUOTA)
-                printf(" (quota)");
-            /* add more decodes here as needed */
+			if (missing & EXT4_FEATURE_RO_COMPAT_BIGALLOC)
+				printf(" (bigalloc)");
+			if (missing & EXT4_FEATURE_RO_COMPAT_QUOTA)
+				printf(" (quota)");
+			/* add more decodes here as needed */
 
-            printf("\n");
-            printf("        This aboot build cannot read this ext4 layout safely.\n");
-        }
-        return -1;
-    }
+			printf("\n");
+			printf("        This aboot build cannot read this ext4"
+			       " layout safely.\n");
+		}
+		return -1;
+	}
 
 #ifdef DEBUG_EXT2
-    if (!quiet) {
-        printf("ext2/4: features OK: compat=0x%08x ro_compat=0x%08x "
-               "incompat=0x%08x\n",
-               compat, ro_compat, incompat);
-    }
+	if (!quiet) {
+		printf("ext2/4: features OK: compat=0x%08x ro_compat=0x%08x "
+		       "incompat=0x%08x\n",
+		       compat, ro_compat, incompat);
+	}
 #endif
-    return 0;
+	return 0;
 }
 
 /*
@@ -179,23 +187,23 @@ static int ext2_mount(long bdev, long p_offset, long quiet)
 		}
 		return -1;
 	}
-    /*
-     * ext4: group descriptor size.  For classic ext2 this is either
-     * zero or 32.  For ext4 with 64bit it is typically 64.
-     *
-     * We only care about the first sizeof(struct ext2_group_desc)
-     * bytes, which are laid out compatibly with ext2.
-     */
-    group_desc_size = sb.s_desc_size;
-    if (group_desc_size == 0)
-        group_desc_size = sizeof(struct ext2_group_desc);
+	/*
+	 * ext4: group descriptor size.  For classic ext2 this is either
+	 * zero or 32.  For ext4 with 64bit it is typically 64.
+	 *
+	 * We only care about the first sizeof(struct ext2_group_desc)
+	 * bytes, which are laid out compatibly with ext2.
+	 */
+	group_desc_size = sb.s_desc_size;
+	if (group_desc_size == 0)
+		group_desc_size = sizeof(struct ext2_group_desc);
 
-    if (group_desc_size < sizeof(struct ext2_group_desc)) {
-        if (!quiet)
-            printf("ext2/4: group descriptor size %u too small\n",
-                   group_desc_size);
-        return -1;
-    }
+	if (group_desc_size < sizeof(struct ext2_group_desc)) {
+		if (!quiet)
+			printf("ext2/4: group descriptor size %u too small\n",
+			       group_desc_size);
+		return -1;
+	}
 	if (ext4_check_features(quiet) < 0)
 		return -1;
 
@@ -576,138 +584,141 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 
 static int ext4_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buffer)
 {
-    struct ext4_extent_header *hdr;
-    struct ext4_extent *ext_base;
-    int entries, maxentries;
-    long cur_blk = blkno;     /* logical block we are at */
-    long blocks_left = nblks; /* blocks still to read */
-    char *bufp = buffer;
-    long tot_bytes = 0;
+	struct ext4_extent_header *hdr;
+	struct ext4_extent *ext_base;
+	int entries, maxentries;
+	long cur_blk;			/* logical block we are at */
+	long blocks_left;		/* blocks still to read */
+	char *bufp = buffer;
+	long tot_bytes = 0;
 
-    hdr = (struct ext4_extent_header *)&ip->i_block[0];
+	hdr = (struct ext4_extent_header *)&ip->i_block[0];
 
-    if (hdr->eh_magic != EXT4_EXT_MAGIC) {
-        printf("ext4_breadi: Extent header magic wrong.\n");
-        return -1;
-    }
+	if (hdr->eh_magic != EXT4_EXT_MAGIC) {
+		printf("ext4_breadi: Extent header magic wrong.\n");
+		return -1;
+	}
 
-    /* For now we only handle leaf extents stored inline in the inode. */
-    if (hdr->eh_depth != 0) {
-        printf("ext4_breadi: Extent tree depth %d not supported.\n",
-               hdr->eh_depth);
-        return -1;
-    }
+	/* For now we only handle leaf extents stored inline in the inode. */
+	if (hdr->eh_depth != 0) {
+		printf("ext4_breadi: Extent tree depth %d not supported.\n",
+		       hdr->eh_depth);
+		return -1;
+	}
 
-    /*
-     * eh_entries comes off the disk.  The inline extent area is
-     * i_block[] minus the header, so anything larger than that walks out
-     * of the inode and into whatever the inode table holds next.
-     */
-    maxentries = (sizeof(ip->i_block) - sizeof(*hdr)) / sizeof(struct ext4_extent);
-    if (hdr->eh_max && hdr->eh_max < maxentries)
-        maxentries = hdr->eh_max;
+	/*
+	 * eh_entries comes off the disk.  The inline extent area is
+	 * i_block[] minus the header, so anything larger than that walks out
+	 * of the inode and into whatever the inode table holds next.
+	 */
+	maxentries = (sizeof(ip->i_block) - sizeof(*hdr))
+		     / sizeof(struct ext4_extent);
+	if (hdr->eh_max && hdr->eh_max < maxentries)
+		maxentries = hdr->eh_max;
 
-    entries  = hdr->eh_entries;
-    if (entries <= 0) {
-        printf("ext4_breadi: No extents.\n");
-        return -1;
-    }
-    if (entries > maxentries) {
-        printf("ext4_breadi: %d extents exceeds the %d that fit inline.\n",
-               entries, maxentries);
-        return -1;
-    }
+	entries = hdr->eh_entries;
+	if (entries <= 0) {
+		printf("ext4_breadi: No extents.\n");
+		return -1;
+	}
+	if (entries > maxentries) {
+		printf("ext4_breadi: %d extents exceeds the %d that fit"
+		       " inline.\n", entries, maxentries);
+		return -1;
+	}
 
-    /* --- honour file size like ext2_breadi() does --- */
-    if ((blkno + nblks) * ext2fs.blocksize > ip->i_size) {
-        long maxblk = (ip->i_size + ext2fs.blocksize - 1) / ext2fs.blocksize;
-        nblks = maxblk - blkno;
-        if (nblks <= 0)
-            return 0;  /* nothing to read */
-    }
-    cur_blk     = blkno;
-    blocks_left = nblks;
+	/* Honor the file size the way ext2_breadi() does */
+	if ((blkno + nblks) * ext2fs.blocksize > ip->i_size) {
+		long maxblk = (ip->i_size + ext2fs.blocksize - 1)
+			      / ext2fs.blocksize;
 
+		nblks = maxblk - blkno;
+		if (nblks <= 0)
+			return 0;	/* nothing to read */
+	}
+	cur_blk = blkno;
+	blocks_left = nblks;
 
-    /* Extents start right after the header in i_block[] */
-    ext_base = (struct ext4_extent *)((char *)hdr + sizeof(*hdr));
+	/* Extents start right after the header in i_block[] */
+	ext_base = (struct ext4_extent *)((char *)hdr + sizeof(*hdr));
 
-    while (blocks_left > 0) {
-        struct ext4_extent *ext = NULL;
-        int i;
+	while (blocks_left > 0) {
+		struct ext4_extent *ext = NULL;
+		uint32_t first, len;
+		long within, can_read;
+		long ee_start, phys_blk, offset, nbytes, got;
+		int i;
 
-        /* Find the extent that covers cur_blk */
-        for (i = 0; i < entries; i++) {
-            struct ext4_extent *e = &ext_base[i];
-            uint32_t first = e->ee_block;
-            uint32_t len   = e->ee_len;
+		/* Find the extent that covers cur_blk */
+		for (i = 0; i < entries; i++) {
+			struct ext4_extent *e = &ext_base[i];
 
-            /*
-             * ee_len above EXT_INIT_MAX_LEN marks an uninitialized
-             * extent: the blocks are allocated but hold no data yet,
-             * and the real length is ee_len - EXT_INIT_MAX_LEN.  Such
-             * an extent still covers its share of the logical block
-             * space, so take its real length into account here and
-             * refuse it only if the block we want falls inside it.
-             */
-            if (len > EXT_INIT_MAX_LEN)
-                len -= EXT_INIT_MAX_LEN;
+			first = e->ee_block;
+			len = e->ee_len;
 
-            if (len == 0)
-                continue;
+			/*
+			 * ee_len above EXT_INIT_MAX_LEN marks an
+			 * uninitialized extent: the blocks are allocated but
+			 * hold no data yet, and the real length is ee_len -
+			 * EXT_INIT_MAX_LEN.  Such an extent still covers its
+			 * share of the logical block space, so take its real
+			 * length into account here and refuse it only if the
+			 * block we want falls inside it.
+			 */
+			if (len > EXT_INIT_MAX_LEN)
+				len -= EXT_INIT_MAX_LEN;
 
-            if ((uint32_t)cur_blk >= first &&
-                (uint32_t)cur_blk < first + len) {
-                if (e->ee_len > EXT_INIT_MAX_LEN) {
-                    printf("ext4_breadi: uninitialized extent at"
-                           " block %u.\n", first);
-                    return -1;
-                }
-                ext = e;
-                break;
-            }
-        }
+			if (len == 0)
+				continue;
 
-        if (!ext) {
-            printf("ext4_breadi: logical block %ld not in any extent.\n",
-                   cur_blk);
-            return -1;
-        }
+			if ((uint32_t) cur_blk >= first
+			    && (uint32_t) cur_blk < first + len) {
+				if (e->ee_len > EXT_INIT_MAX_LEN) {
+					printf("ext4_breadi: uninitialized"
+					       " extent at block %u.\n",
+					       first);
+					return -1;
+				}
+				ext = e;
+				break;
+			}
+		}
 
-        {
-            uint32_t first = ext->ee_block;
-            uint32_t len   = ext->ee_len;
-            long within    = cur_blk - first;   /* offset inside this extent */
-            long can_read  = len - within;      /* blocks available here */
+		if (!ext) {
+			printf("ext4_breadi: logical block %ld not in any"
+			       " extent.\n", cur_blk);
+			return -1;
+		}
 
-            if (can_read > blocks_left)
-                can_read = blocks_left;
+		first = ext->ee_block;
+		len = ext->ee_len;
+		within = cur_blk - first;	/* offset inside this extent */
+		can_read = len - within;	/* blocks available here */
 
-            /* Calculate physical start block of this chunk */
-            long ee_start =
-                ((long)ext->ee_start_hi << 32) + ext->ee_start_lo;
-            long phys_blk = ee_start + within;
+		if (can_read > blocks_left)
+			can_read = blocks_left;
 
-            long offset = partition_offset +
-                phys_blk * ext2fs.blocksize;
-            long nbytes = can_read * ext2fs.blocksize;
-            long got;
+		/* Calculate physical start block of this chunk */
+		ee_start = ((long) ext->ee_start_hi << 32) + ext->ee_start_lo;
+		phys_blk = ee_start + within;
 
-            got = cons_read(dev, bufp, nbytes, offset);
-            if (got != nbytes) {
-                printf("ext4_breadi: cons_read failed (wanted %ld, got %ld).\n",
-                       nbytes, got);
-                return -1;
-            }
+		offset = partition_offset + phys_blk * ext2fs.blocksize;
+		nbytes = can_read * ext2fs.blocksize;
 
-            bufp       += nbytes;
-            tot_bytes  += nbytes;
-            cur_blk    += can_read;
-            blocks_left -= can_read;
-        }
-    }
+		got = cons_read(dev, bufp, nbytes, offset);
+		if (got != nbytes) {
+			printf("ext4_breadi: cons_read failed (wanted %ld,"
+			       " got %ld).\n", nbytes, got);
+			return -1;
+		}
 
-    return tot_bytes;
+		bufp += nbytes;
+		tot_bytes += nbytes;
+		cur_blk += can_read;
+		blocks_left -= can_read;
+	}
+
+	return tot_bytes;
 }
 
 static int ext2_breadi(struct ext2_inode *ip, long blkno, long nblks, char *buffer)
