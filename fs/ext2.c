@@ -88,7 +88,7 @@ static int ext4_check_features(int quiet)
     uint32_t incompat  = sb.s_feature_incompat;
     uint32_t missing;
 
-    /* First check incompatible features – these must all be understood */
+    /* First check incompatible features: these must all be understood */
     missing = incompat & ~EXT4_FEATURE_INCOMPAT_SUPP;
     if (missing) {
         if (!quiet) {

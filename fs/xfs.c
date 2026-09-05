@@ -899,7 +899,7 @@ next_dentry(xfs_ino_t *ino)
         /* block/leaf/btree formats */
         if (xfs.dirpos >= xfs.dirmax) {
 
-            /* v5: we don’t chain leaf blocks yet → stop here */
+            /* v5: we do not chain leaf blocks yet, so stop here */
             if (xfs.is_v5) {
                 return NULL;
             }
@@ -928,7 +928,7 @@ next_dentry(xfs_ino_t *ino)
 
     case XFS_DINODE_FMT_EXTENTS:
     case XFS_DINODE_FMT_BTREE:
-        /* v4 → DIR2, v5 → DIR3 */
+        /* v4 uses DIR2, v5 uses DIR3 */
         return xfs.is_v5 ? next_dentry_dir3(ino) : next_dentry_dir2(ino);
 
     default:
@@ -1343,7 +1343,7 @@ first_dentry_dir2(xfs_ino_t *ino)
      * ---------------------------------------------------------- */
     else
     {
-        /* Starting dablk for leaf / node search, per XFS rules */
+        /* Starting dablk for leaf / node search, per XFS rules */
         xfs.dablk = (1ULL << 35) >> xfs.blklog;
 
         for (depth = 0; depth <= XFS_DA_NODE_MAXDEPTH; depth++)
