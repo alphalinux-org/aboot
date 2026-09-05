@@ -155,7 +155,7 @@ static int ext4_check_features(int quiet)
  * control structures and make them available to the user.  Returns 0
  * if successful, -1 on failure.
  */
-static int ext2_mount(long cons_dev, long p_offset, long quiet)
+static int ext2_mount(long bdev, long p_offset, long quiet)
 {
 	long sb_block = 1;
 	long sb_offset;
@@ -163,7 +163,7 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 	size_t gds_bytes;
 	int i;
 
-	dev = cons_dev;
+	dev = bdev;
 	partition_offset = p_offset;
 
 	/* initialize the inode table */

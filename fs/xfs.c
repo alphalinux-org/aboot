@@ -33,7 +33,7 @@
 #include "utils.h"
 #include "xfs.h"
 
-static int xfs_mount(long cons_dev, long p_offset, long quiet);
+static int xfs_mount(long bdev, long p_offset, long quiet);
 static int xfs_bread(int fd, long blkno, long nblks, char *buffer);
 static int xfs_open(const char *dirname);
 static void xfs_close(int fd);
@@ -1696,13 +1696,13 @@ first_dentry(xfs_ino_t *ino)
  * if successful, -1 on failure.
  */
 static int
-xfs_mount(long cons_dev, long p_offset, long quiet)
+xfs_mount(long bdev, long p_offset, long quiet)
 {
        xfs_sb_t super;
 
        partition_offset = p_offset;
 
-       if (cons_read (cons_dev, &super, sizeof(super), partition_offset) != sizeof(super)) {
+       if (cons_read (bdev, &super, sizeof(super), partition_offset) != sizeof(super)) {
                if (!quiet)
                        printf("xfs_mount: read_disk_block failed!\n");
                return -1;
@@ -1818,7 +1818,7 @@ xfs_mount(long cons_dev, long p_offset, long quiet)
        printf("XFS: version   = %d\n",be16_to_cpu(super.sb_versionnum) & XFS_SB_VERSION_NUMBITS);
        printf("XFS: blocksize = %d\n",xfs.bsize);
 #endif
-       dev = cons_dev;
+       dev = bdev;
        xfsfs.blocksize = xfs.bsize;
        return 0;
 }
