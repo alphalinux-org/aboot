@@ -1831,12 +1831,34 @@ xfs_read (void *buf, long len)
        xfs_filblks_t xadlen;
        int toread, startpos, endpos;
 
-	if (icore.di_format == XFS_DINODE_FMT_LOCAL) {
-    		char *dptr = xfs_dfork_dptr(); /* start of literal data/shortform dir */
-    		memmove(buf, dptr + filepos, len);
-    		filepos += len;
-    		return len;
-	}
+       if (icore.di_format == XFS_DINODE_FMT_LOCAL) {
+               /* start of the literal area: shortform dir, symlink target */
+               char *dptr = xfs_dfork_dptr();
+               xfs_fsize_t size = be64_to_cpu(icore.di_size);
+               long avail;
+
+               /*
+                * The literal area is the tail of the inode, and the inode
+                * is the tail of FSYS_BUF, so an unchecked length here runs
+                * off the end of the scratch buffer.  di_size comes off the
+                * disk and could be anything, so bound the copy by both it
+                * and the inode itself.
+                */
+               if (filepos < 0 || (xfs_fsize_t) filepos >= size)
+                       return 0;
+               if (len > (long) (size - filepos))
+                       len = size - filepos;
+
+               avail = ((char *) inode + xfs.isize) - (dptr + filepos);
+               if (avail < 0)
+                       avail = 0;
+               if (len > avail)
+                       len = avail;
+
+               memmove(buf, dptr + filepos, len);
+               filepos += len;
+               return len;
+       }
        startpos = filepos;
        endpos = filepos + len;
        endofprev = (xfs_fileoff_t)-1;
