@@ -24,15 +24,18 @@ static struct ext2_super_block sb;
 static struct ext2_group_desc *gds;
 static struct ext2_inode *root_inode = NULL;
 static int ngroups = 0;
-static int directlim;			/* Maximum direct blkno */
-static int ind1lim;			/* Maximum single-indir blkno */
-static int ind2lim;			/* Maximum double-indir blkno */
+static long directlim;			/* Maximum direct blkno */
+static long ind1lim;			/* Maximum single-indir blkno */
+static long ind2lim;			/* Maximum double-indir blkno */
+static long ind3lim;			/* Maximum triple-indir blkno */
 static int ptrs_per_blk;		/* ptrs/indirect block */
 static char *blkbuf;
 static int cached_iblkno = -1;
 static char *iblkbuf;
 static int cached_diblkno = -1;
 static char *diblkbuf;
+static int cached_tiblkno = -1;
+static char *tiblkbuf;
 static long dev = -1;
 static long partition_offset;
 
@@ -94,6 +97,7 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 	blkbuf = malloc(ext2fs.blocksize);
 	iblkbuf = malloc(ext2fs.blocksize);
 	diblkbuf = malloc(ext2fs.blocksize);
+	tiblkbuf = malloc(ext2fs.blocksize);
 
 	/* read in the group descriptors (immediately follows superblock) */
 	cons_read(dev, gds, ngroups * sizeof(struct ext2_group_desc),
@@ -106,8 +110,9 @@ static int ext2_mount(long cons_dev, long p_offset, long quiet)
 	ext2fs.blocksize = EXT2_BLOCK_SIZE(&sb);
 	directlim = EXT2_NDIR_BLOCKS - 1;
 	ptrs_per_blk = ext2fs.blocksize/sizeof(unsigned int);
-	ind1lim = ptrs_per_blk + directlim;
-	ind2lim = (ptrs_per_blk * ptrs_per_blk) + directlim;
+	ind1lim = (long) ptrs_per_blk + directlim;
+	ind2lim = (long) ptrs_per_blk * ptrs_per_blk + ind1lim;
+	ind3lim = (long) ptrs_per_blk * ptrs_per_blk * ptrs_per_blk + ind2lim;
 
 	return 0;
 }
@@ -218,9 +223,7 @@ static int ext2_read_indirect(int blkno, int *cached, char *buf, const char *wha
 
 /*
  * Map a block offset into a file into an absolute block number.
- * (traverse the indirect blocks if necessary).  Note: Double-indirect
- * blocks allow us to map over 64Mb on a 1k file system.  Therefore, for
- * our purposes, we will NOT bother with triple indirect blocks.
+ * (traverse the indirect blocks if necessary).
  *
  * The "allocate" argument is set if we want to *allocate* a block
  * and we don't already have one allocated.
@@ -229,12 +232,15 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 {
 	unsigned int *ilp;
 	unsigned int *dlp;
+	unsigned int *tlp;
 	int blkno;
 	int iblkno;
 	int diblkno;
+	int tiblkno;
 
 	ilp = (unsigned int *)iblkbuf;
 	dlp = (unsigned int *)diblkbuf;
+	tlp = (unsigned int *)tiblkbuf;
 
 	/* If it's a direct block, it's easy! */
 	if (blkoff <= directlim) {
@@ -289,7 +295,50 @@ static int ext2_blkno(struct ext2_inode *ip, int blkoff)
 		return blkno;
 	}
 
-	if (blkoff > ind2lim) {
+	/* Is it a triple-indirect? */
+	if (blkoff <= ind3lim) {
+		/* Find the triple-indirect block */
+		tiblkno = ip->i_block[EXT2_TIND_BLOCK];
+
+		if (tiblkno == 0) {
+			return 0;
+		}
+
+		/* Read in the triple-indirect block */
+		if (ext2_read_indirect(tiblkno, &cached_tiblkno, tiblkbuf, "tindr") < 0) {
+			return 0;
+		}
+
+		/* Find the double-indirect block pointer ... */
+		diblkno = tlp[(blkoff - (ind2lim+1)) / (ptrs_per_blk * ptrs_per_blk)];
+
+		if (diblkno == 0) {
+			return 0;
+		}
+
+		/* Read in the double-indirect block */
+		if (ext2_read_indirect(diblkno, &cached_diblkno, diblkbuf, "dindr") < 0) {
+			return 0;
+		}
+
+		/* Find the single-indirect block pointer ... */
+		iblkno = dlp[((blkoff - (ind2lim+1)) / ptrs_per_blk) % ptrs_per_blk];
+
+		if (iblkno == 0) {
+			return 0;
+		}
+
+		/* Read the indirect block */
+		if (ext2_read_indirect(iblkno, &cached_iblkno, iblkbuf, "iblk") < 0) {
+			return 0;
+		}
+
+		/* Find the block itself. */
+		blkno = ilp[(blkoff - (ind2lim+1)) % ptrs_per_blk];
+		return blkno;
+	}
+
+	if (blkoff > ind3lim) {
 		printf("ext2_blkno: block number too large: %d\n", blkoff);
 		return 0;
 	}
